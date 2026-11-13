@@ -1,0 +1,34 @@
+name: Checks
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - name: Start local replica set
+        run: pnpm db:up
+      - name: Verify replica-set connection
+        run: pnpm db:check
+        env:
+          MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true
+          MONGODB_DB: practice_ci
+      - name: Show database logs on failure
+        if: failure()
+        run: docker compose -f infra/compose.yaml logs
+      - name: Stop local database
+        if: always()
+        run: pnpm db:down

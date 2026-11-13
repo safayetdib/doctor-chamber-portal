@@ -1,0 +1,25 @@
+{
+  "name": "practice-management",
+  "private": true,
+  "packageManager": "pnpm@12.20.0",
+  "engines": { "node": ">=24.19.0 <25" },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "db:up": "docker compose -f infra/compose.yaml up -d --wait mongo && docker compose -f infra/compose.yaml run --rm mongo-init",
+    "db:down": "docker compose -f infra/compose.yaml down",
+    "db:check": "pnpm --filter @practice/backend db:check"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.14.0",
+    "globals": "17.14.0",
+    "turbo": "2.11.11",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.2"
+  }
+}
