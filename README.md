@@ -6,24 +6,49 @@ Backend-first chamber queue application. The accepted design is in [docs/PLAN.md
 
 - Node.js matching `.node-version` (supported LTS).
 - pnpm matching the root `packageManager` field.
-- Docker with Docker Compose for the local MongoDB replica set. A standalone MongoDB server is insufficient.
+- A writable MongoDB replica set. Use Scoop on Windows or Docker Compose for the container setup.
 
 ## Local setup
 
-From the repository root:
+### Windows with Scoop
+
+Install dependencies and start MongoDB from the repository root in PowerShell. Leave this terminal open while developing. Use Ctrl+C to stop MongoDB.
 
 ```powershell
 pnpm install --frozen-lockfile
-Copy-Item backend/.env.example backend/.env
-Copy-Item frontend/.env.example frontend/.env.local
-pnpm db:up
+scoop install main/mongodb
+./infra/start-mongodb.ps1
+```
+
+From a second terminal at the repository root, initialize the replica set on first use, verify it, and start the apps.
+
+```powershell
+pnpm --filter @practice/backend db:init:local
 pnpm db:check
+pnpm --filter @practice/contracts build
+pnpm --filter @practice/backend db:migrate
 pnpm dev
 ```
 
-Use `cp` instead of `Copy-Item` on macOS/Linux. Environment files contain local defaults only; never commit real credentials.
+The initializer generates an app password and saves it as part of `MONGODB_URI` in the gitignored `backend/.env`. The app user has `readWrite` access to `practice_management`. The gitignored `.mongodb-local/` directory holds the replica key, user administrator password, data, and server log. On subsequent starts, run `./infra/start-mongodb.ps1` and then `pnpm dev`. The Scoop and Compose setups both use localhost port 27017, so stop one before starting the other.
 
-Open http://127.0.0.1:3000. The frontend proxies `/api/*` to the backend on http://127.0.0.1:4000. The API intentionally refuses to start without a writable replica set. To preview only the frontend, run `pnpm --filter @practice/contracts build`, then `pnpm --filter @practice/frontend dev`; its service check will accurately show unavailable until the backend runs.
+### Docker Compose
+
+From the repository root on macOS or Linux, run the following. In PowerShell, use `Copy-Item` in place of `cp`.
+
+```sh
+pnpm install --frozen-lockfile
+cp backend/.env.example backend/.env
+pnpm db:up
+pnpm db:check
+pnpm --filter @practice/contracts build
+pnpm --filter @practice/backend db:migrate
+pnpm dev
+```
+
+### Open the app
+
+Open http://127.0.0.1:3000. The frontend proxies `/api/*` to the backend on http://127.0.0.1:4000. The API requires a writable replica set and the explicit identity migration. To preview only the frontend, run `pnpm --filter @practice/contracts build`, then `pnpm --filter @practice/frontend dev`; its service check will accurately show unavailable until the backend runs.
 
 For simultaneous editing, root `pnpm dev` watches contracts and applications. After changing shared contracts, restart an app if its watcher does not pick up rebuilt workspace output.
 
@@ -33,9 +58,12 @@ For simultaneous editing, root `pnpm dev` watches contracts and applications. Af
 | --- | --- |
 | `pnpm dev` | Run applications and contract watcher |
 | `pnpm check` | Lint, typecheck, tests and production builds |
-| `pnpm db:up` | Start local replica set and initialize it |
+| `pnpm db:up` | Start and initialize the Compose replica set |
 | `pnpm db:check` | Validate connection and writable replica-set topology |
-| `pnpm db:down` | Stop local database, preserving its volume |
+| `pnpm --filter @practice/backend db:migrate` | Apply the identity collection validators and indexes |
+| `pnpm --filter @practice/backend seed:superuser` | Create a development administrator from explicit env inputs |
+| `pnpm --filter @practice/backend test:integration` | Run auth and practice tests in isolated collections on a writable development replica set |
+| `pnpm db:down` | Stop the Compose database, preserving its volume |
 | `pnpm --filter @practice/backend start` | Run previously built API |
 | `pnpm --filter @practice/frontend start` | Run previously built frontend |
 
@@ -44,17 +72,40 @@ Liveness: `/api/v1/health/live`. Readiness: `/api/v1/health/ready` (unavailable 
 ## Development boundaries
 
 - `frontend/`: presentation only; no database access.
-- `backend/`: validated environment, API, infrastructure and future domain services.
+- `backend/`: validated environment, API, infrastructure and identity/access domain services.
 - `packages/contracts/`: public runtime schemas and TypeScript types, no credential or database exports.
 - `infra/`: local-only MongoDB setup. The unauthenticated container is bound to loopback and is not a production deployment configuration.
 - CI repeats the checks and verifies the Compose replica set on Linux.
 
-No authentication, booking or queue domain endpoints exist in the foundation segment. See the progress document before starting the next segment.
+## Accounts and access
+
+To seed a local administrator, supply `SUPERUSER_LOGIN_ID`, `SUPERUSER_NAME`, and `SUPERUSER_PASSWORD` to the seed command through the process environment or your gitignored `backend/.env`. Choose an explicit password. A repeat seed for the same active administrator leaves the existing credentials unchanged.
+
+The identity API is under `/api/v1`. For direct API testing, send the configured `PUBLIC_APP_ORIGIN` as the `Origin` header on writes and reuse the session cookie returned by login or setup. The local HTTP origin defaults to `http://127.0.0.1:3000`, and an HTTPS origin uses a Secure cookie.
+
+| Workflow | Routes |
+| --- | --- |
+| Password login and session | `POST /auth/login`, `GET/PATCH /auth/me`, `POST /auth/logout` |
+| Patient self-signup or invited setup | `POST /auth/signup/start`, `POST /auth/signup/complete`, `POST /auth/setup` |
+| Optional phone sign-in | `POST /auth/phone-grant/start`, `POST /auth/phone-grant/complete`, `DELETE /auth/phone-grant`, `POST /auth/phone-login/start`, `POST /auth/phone-login/complete` |
+| Recovery with an authorized phone | `POST /auth/recovery/start`, `POST /auth/recovery/complete` |
+| Operator-assisted recovery | `POST /admin/account-recovery`, `POST /auth/recovery/operator/complete` |
+| Practice administration | `GET/POST /admin/practices`, `GET /admin/practices/:doctorId`, `PATCH /admin/practices/:doctorId/status`, `POST /admin/practices/:doctorId/setup` |
+| Assigned practice and assistant management | `GET /practice`, `GET/POST /practice/assistant`, `POST /practice/assistant/:assignmentId/setup`, `DELETE /practice/assistant/:assignmentId` |
+| Staff patient registration | `POST /patients`, `POST /patients/lookup`, `PATCH /patients/:patientId`, `POST /patients/:patientId/setup` |
+
+Send setup invitations privately. In this backend checkpoint the API returns a setup token for submission in the setup request body. The frontend setup screen is part of the demo UI segment.
+
+For an account without an authorized phone, an administrator can issue an operator recovery token after independently confirming the caller's identity. Record the approved case outside the application and send an opaque `caseReference` of the form `CASE-ABC123` with the login ID and the administrator's current password. Deliver the token through the verified private channel. The issuance and completion audit events link to that case reference.
+
+The development SMS adapter stores codes in memory for retrieval through the integration harness. Set `IDENTITY_OTP_SECRET` in the gitignored environment to keep outstanding codes verifiable over a development restart. An unset value uses a per-process secret. Production startup is gated on a real SMS provider and administrator MFA.
 
 ## Operational notes
 
-The local MongoDB member advertises `mongo:27017` inside Compose; host applications use `directConnection=true` to the loopback port. Production must use an authenticated replica-set URI with reachable member hostnames and without this local-only topology workaround.
+The Compose member advertises `mongo:27017` inside the container network. Host applications use `directConnection=true` to reach it through the loopback port. The Scoop replica set advertises `localhost:27017` and requires authentication.
+
+When moving to an Atlas replica set, configure an Atlas database user and network access, set `MONGODB_URI` to the Atlas-provided `mongodb+srv://` URI, and set `MONGODB_DB` to the application database name. Run `pnpm db:check` against the new connection. Copy any local data you want to keep separately. [Atlas driver connection guide](https://www.mongodb.com/docs/atlas/driver-connection/)
 
 `API_INTERNAL_ORIGIN` is consumed by Next.js rewrites at build/start configuration time. Set it consistently in the deployment build environment. No `NEXT_PUBLIC` variable contains private backend configuration.
 
-Database migrations, authentication, SMS provider integration, backups and deployment hardening are planned in later segments; do not use this foundation with real patient records.
+Use synthetic patient data in local development. Backups, production deployment and full end-to-end verification remain upcoming.

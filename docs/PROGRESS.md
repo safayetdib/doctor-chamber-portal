@@ -4,8 +4,8 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 
 | Segment | Status |
 | --- | --- |
-| Repository foundation | Implemented; application checks passed, live database check pending local Docker |
-| Accounts and access | Not started |
+| Repository foundation | Implemented and verified against an authenticated Scoop replica set |
+| Accounts and access | Backend implemented with local replica-set verification |
 | Sessions and bookings | Not started |
 | Queue engine | Not started |
 | Demonstration UI and live updates | Not started |
@@ -33,12 +33,46 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 - Live MongoDB/Compose verification was NOT run: Docker, mongod and mongosh are not installed locally. The CI workflow includes `db:up` and `db:check`, but CI has not been executed remotely.
 - No real patient data, credentials, deployments or remote repository were created.
 
+## Windows MongoDB setup
+
+- Installed MongoDB through Scoop and started a password-protected single-member replica set bound to `127.0.0.1:27017`. The local process starts manually and persists its data in `.mongodb-local/`.
+- Added a PowerShell launcher and a bootstrap command. The app receives a generated `readWrite` credential through `MONGODB_URI` in `backend/.env`. The separate user administrator password and replica key live under `.mongodb-local/`. Git ignores both locations.
+- Documented the Scoop and Compose workflows and how to supply an Atlas URI when the project moves to Atlas.
+- `pnpm check` passed with Turbo caching bypassed on the pinned Node and pnpm versions. `pnpm db:check` passed against the running authenticated replica set. A second bootstrap succeeded using the existing credentials.
+- A live smoke test committed and read back a transaction, confirmed that MongoDB rejected an unauthenticated write and an app-user administration request, then dropped the temporary collection. The compiled backend returned `ready` from its readiness endpoint.
+- The local Compose workflow and Atlas connection were not exercised in this sitting. MongoDB was left running locally. The system PATH selects a newer Node version, so verification used the already-installed pinned Node for the command session.
+
+## Course proposal draft
+
+- Added [copy-ready proposal slide text](COURSE-PITCH.md) using the supplied proposal as a structural reference and the accepted plan as the content source.
+- Reviewed the draft against the plan and checkpoint status. It presents the verified foundation as current work and the booking and queue demo as planned work. Course and team details are placeholders.
+- Documentation only. No application or database checks were run in this sitting.
+
+## Accounts and access
+
+- Added public identity contracts, separately validated MongoDB documents, and an explicit migration for validators, unique and partial indexes, and TTL cleanup. API startup checks for the migration.
+- Added password authentication with Argon2id, hashed opaque sessions, strict same-origin writes, throttled expiring challenges, and account-specific optional phone login. Shared contact numbers remain nonunique and do not authorize access.
+- Added patient OTP signup, staff preregistration and corrections, exact-login minimal lookup, reissuable single-use setup tokens, and authenticated self-service profile edits.
+- Added idempotent superuser seeding, practice provisioning and paid-access status controls, and doctor-owned assistant invitation, activation, and revocation. Assignment, credential, and practice writes serialize permission-sensitive changes. Audits record scope and actor without secrets.
+- Added recovery using the authorized phone and a separately purposed operator token for accounts without a grant. The operator flow requires superuser reauthentication and an opaque reference to an identity-verification case handled outside the application.
+- Added a CI integration step that uses a real replica set. The integration command creates uniquely prefixed fixture collections with synthetic records and removes them on completion.
+
+### Verification actually performed
+
+- `pnpm check` passed lint, type checks, unit tests, and production builds with Turbo caching bypassed on the pinned toolchain.
+- `pnpm db:check` and `pnpm --filter @practice/backend test:integration` passed on the authenticated Scoop replica set. The suite exercises database constraints, shared-phone isolation, OTP limits and expiry, setup expiry and replay, both recovery paths, tenant permissions, concurrent invitations, and assistant activation racing with revocation.
+- `pnpm --filter @practice/backend db:migrate` succeeded on the local development database and on a repeat run. The compiled backend reported ready, required authentication for the self endpoint, and rejected login without the configured origin. The production startup gate also returned the expected failure.
+- The new CI step is configured. Remote CI and Docker Compose verification remain pending.
+
+### Limits at this checkpoint
+
+- Development uses an in-memory SMS adapter with code retrieval through the integration harness. Configure a real provider and administrator MFA before enabling production startup.
+- Setup and operator recovery return tokens for the API request bodies. Browser setup screens and delivery workflows belong to the demo UI segment.
+- Practice status gates staff access. The sessions and bookings segment will add the running-session deactivation guard and record cleanup. The generated OpenAPI artifact remains pending.
+
 ## Start here next sitting
 
-1. Read PLAN.md and this handoff; retain the accepted scope.
-2. Make Docker available (or provide an authenticated development replica-set URI), copy environment examples, then run `pnpm db:up` and `pnpm db:check` to close the infrastructure verification gap. The Compose database is local-only and unauthenticated.
-3. Begin **Accounts and access**: persisted schemas/validators/index migrations, account/credential/profile repositories, authentication/setup challenges, superuser seed, doctor administration and assistant invitations/revocation.
-4. Add database integration tests alongside identity/access work. Do not postpone permission and uniqueness checks until the final hardening segment.
-5. Continue using a development-only SMS adapter until a real provider is selected/configured; never allow the fake adapter in production.
-
-Do not start sessions/bookings or queue implementation until the accounts/access checkpoint is complete. Frontend polish remains deferred.
+1. Read PLAN.md and this handoff. Select the pinned Node version and start the Scoop replica set with `./infra/start-mongodb.ps1` or use the documented Compose workflow.
+2. Build contracts, run `pnpm db:check` and `pnpm --filter @practice/backend db:migrate`, then run `pnpm --filter @practice/backend test:integration` as an identity baseline.
+3. Begin **Sessions and bookings** with chamber and reference schedule documents, migrations and authorized routes, then dated session drafts and explicit publication in Asia/Dhaka.
+4. Use the existing identity service and practice guards for staff and patient booking. Add transactionally allocated serials and capacity, ownership checks, cancellation, deactivation guards and cleanup, plus live replica-set coverage for races. Keep queue operation commands and demo UI for their own segments.

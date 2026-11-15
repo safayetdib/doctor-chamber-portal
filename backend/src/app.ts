@@ -4,13 +4,15 @@ import helmet from 'helmet';
 import { pinoHttp } from 'pino-http';
 import type { Logger } from 'pino';
 import type { ApiError, HealthResponse } from '@practice/contracts';
+import { IdentityError } from './identity/security.js';
 
 interface AppDependencies {
   logger: Logger;
   checkReady: () => Promise<void>;
+  identityRouter?: express.Router;
 }
 
-export function createApp({ logger, checkReady }: AppDependencies) {
+export function createApp({ logger, checkReady, identityRouter }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -45,6 +47,8 @@ export function createApp({ logger, checkReady }: AppDependencies) {
     }
   });
 
+  if (identityRouter) app.use('/api/v1', identityRouter);
+
   app.use((request, response) => {
     response.status(404).json({
       error: { code: 'NOT_FOUND', message: 'Endpoint not found.', requestId: String(request.id) }
@@ -52,6 +56,13 @@ export function createApp({ logger, checkReady }: AppDependencies) {
   });
 
   const handleError: ErrorRequestHandler = (error: unknown, request, response, _next) => {
+    response.setHeader('Cache-Control', 'no-store');
+    if (error instanceof IdentityError) {
+      response.status(error.status).json({
+        error: { code: error.code, message: error.message, requestId: String(request.id) }
+      } satisfies ApiError);
+      return;
+    }
     const bodyError = error as { type?: string };
     const malformed = bodyError?.type === 'entity.parse.failed';
     const oversized = bodyError?.type === 'entity.too.large';

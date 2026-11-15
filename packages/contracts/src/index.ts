@@ -17,5 +17,4 @@ export const apiErrorSchema = z.strictObject({
 
 export type ApiError = z.infer<typeof apiErrorSchema>;
 
-// Domain contracts are introduced alongside their implementation segments.
-// Never export database documents or credential fields from this package.
+export * from './identity.js';

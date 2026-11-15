@@ -6,6 +6,13 @@ const environmentSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   MONGODB_URI: z.string().regex(/^mongodb(?:\+srv)?:\/\/[^\s]+$/),
   MONGODB_DB: z.string().regex(/^[a-zA-Z0-9_-]+$/).default('practice_management'),
+  PUBLIC_APP_ORIGIN: z.string().refine((value) => {
+    try {
+      const url = new URL(value);
+      return ['http:', 'https:'].includes(url.protocol) && url.origin === value;
+    } catch { return false; }
+  }).default('http://127.0.0.1:3000'),
+  IDENTITY_OTP_SECRET: z.string().min(32).optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info')
 });
 

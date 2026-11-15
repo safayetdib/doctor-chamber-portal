@@ -3,14 +3,29 @@ import { createApp } from './app.js';
 import { parseEnvironment } from './config.js';
 import { createDatabase } from './database.js';
 import { createLogger } from './logger.js';
+import { AccessService } from './identity/access.js';
+import { AuthService } from './identity/auth.js';
+import { IdentityContext } from './identity/context.js';
+import { createIdentityRouter } from './identity/routes.js';
+import { DevelopmentSms, randomSecret } from './identity/security.js';
+import { IdentityStore } from './identity/store.js';
 
 async function main() {
   const config = parseEnvironment(process.env);
   const logger = createLogger(config.LOG_LEVEL);
+  if (config.NODE_ENV === 'production') {
+    logger.fatal('Production identity requires a real SMS provider and administrator MFA.');
+    process.exitCode = 1;
+    return;
+  }
   const database = createDatabase(config);
+  const store = new IdentityStore(database.client, database.db);
+  const identity = new IdentityContext(store);
+  const auth = new AuthService(identity, new DevelopmentSms(), config.IDENTITY_OTP_SECRET ?? randomSecret(), false);
   let shuttingDown = false;
   const server = createServer(createApp({
     logger,
+    identityRouter: createIdentityRouter(auth, new AccessService(identity), config.PUBLIC_APP_ORIGIN, config.PUBLIC_APP_ORIGIN.startsWith('https:')),
     checkReady: async () => {
       if (shuttingDown) throw new Error('Shutting down');
       await database.checkReady();
@@ -19,6 +34,7 @@ async function main() {
 
   try {
     await database.connect();
+    await store.checkMigrated();
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(config.PORT, config.HOST, () => {
@@ -28,7 +44,7 @@ async function main() {
     });
   } catch {
     await database.close();
-    logger.fatal('Startup failed. Check database availability, replica-set setup, and bind address.');
+    logger.fatal('Startup failed. Check database availability, replica-set setup, identity migration, and bind address.');
     process.exitCode = 1;
     return;
   }
