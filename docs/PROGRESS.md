@@ -6,14 +6,14 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 | --- | --- |
 | Repository foundation | Implemented and verified against an authenticated Scoop replica set |
 | Accounts and access | Backend implemented with local replica-set verification |
-| Sessions and bookings | Not started |
+| Sessions and bookings | Backend implemented with local replica-set verification |
 | Queue engine | Not started |
 | Demonstration UI and live updates | Not started |
 | Hardening and operating documentation | Not started |
 
 ## Completed in the foundation sitting
 
-- Saved the accepted plan before implementation and initialized a local Git repository on `main`. Files remain uncommitted; no remote was configured.
+- Saved the accepted plan before implementation and initialized a local Git repository on `main`.
 - Added `AGENTS.md` to preserve product boundaries and the segmented workflow across chats.
 - Created top-level frontend/backend packages and shared public contracts, coordinated with pnpm/Turborepo.
 - Pinned the installed Node LTS toolchain and dependencies; generated the workspace lockfile. Used supported ESLint tooling and pnpm's current `allowBuilds` configuration. TypeScript stays on a version supported by typescript-eslint.
@@ -70,9 +70,30 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 - Setup and operator recovery return tokens for the API request bodies. Browser setup screens and delivery workflows belong to the demo UI segment.
 - Practice status gates staff access. The sessions and bookings segment will add the running-session deactivation guard and record cleanup. The generated OpenAPI artifact remains pending.
 
+## Sessions and bookings
+
+- Committed the previous checkpoint on `main` as `eb1fe98` before starting this segment.
+- Added scoped chamber and reference schedule settings. Date-specific overrides replace weekly hours, and drafts snapshot their own consultation interval, duration, and capacity. Staff explicitly publish drafts and control public booking availability.
+- Added an active-practice directory, public available-session queries, scoped staff history, and patient-owned booking history. Booking identity comes from an authenticated patient profile or a patient login ID supplied by authorized staff. Shared contact numbers remain unrelated to ownership.
+- Added transactional regular booking creation and cancellation. The transaction covers capacity, monotonic serials, waiting positions, idempotency results, and audit events. Staff must confirm the current capacity or overtime warnings against the current revision.
+- Added the running-session guard and transactional deactivation cleanup. Disabling cancels future unfinished sessions, closes public booking on elapsed unfinished sessions, and makes waiting or missed bookings unserved. Reactivation preserves those outcomes.
+- Extended the explicit migration and audited the existing identity collections alongside the new scheduling collections. The Scoop migration uses a temporary scoped user for the audit validator upgrade.
+
+### Verification actually performed
+
+- Upgraded the existing authenticated Scoop database with `pnpm --filter @practice/backend db:migrate:local`. A subsequent standard `db:migrate` succeeded with the app account.
+- `pnpm check` passed lint, type checking, unit tests, and production builds with Turbo caching bypassed on the pinned toolchain.
+- `pnpm --filter @practice/backend test:integration` passed on the authenticated replica set. Coverage includes date overrides and publication snapshots, cross-tenant access, the last-slot race, idempotency retries, cancellation and serial gaps, staff acknowledgement and stale revisions, the running-session guard, and a booking racing with deactivation.
+- The compiled API reported ready, served the public practice directory, and required authentication for chamber settings on the migrated database. `git diff --check` passed.
+- On Windows, `pnpm dev` served the Next.js preview at `http://127.0.0.1:3000`. The frontend origin also returned the API readiness response and the public practice directory through the proxy. The preview provides a connection check, and scheduling and booking workflows are available through the API.
+
+### Limits at this checkpoint
+
+- The integration harness seeds running, missed, and completed states where needed. The queue engine segment will add the public staff session lifecycle and queue transition commands, other insertion rules, and patient-facing ETA.
+- Docker Compose and remote CI verification remain pending. A real SMS provider and administrator MFA are still prerequisites for production startup.
+
 ## Start here next sitting
 
-1. Read PLAN.md and this handoff. Select the pinned Node version and start the Scoop replica set with `./infra/start-mongodb.ps1` or use the documented Compose workflow.
-2. Build contracts, run `pnpm db:check` and `pnpm --filter @practice/backend db:migrate`, then run `pnpm --filter @practice/backend test:integration` as an identity baseline.
-3. Begin **Sessions and bookings** with chamber and reference schedule documents, migrations and authorized routes, then dated session drafts and explicit publication in Asia/Dhaka.
-4. Use the existing identity service and practice guards for staff and patient booking. Add transactionally allocated serials and capacity, ownership checks, cancellation, deactivation guards and cleanup, plus live replica-set coverage for races. Keep queue operation commands and demo UI for their own segments.
+1. Read PLAN.md and this handoff. Select the pinned Node and pnpm versions, start the local replica set, build contracts, apply the documented migration, and run the combined replica-set integration suite.
+2. Begin **Queue engine** with start, end, call-next, finish, miss, restore, move, and staff special bookings. Reuse the practice, assignment, and session revision guards. Exercise the actual start/deactivate race through the new start command.
+3. Add transactionally consistent patient and staff snapshots and derive ETA from the active consultation and ordered waiting slots. Keep the UI and live subscription transport in the following segment.

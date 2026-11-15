@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { accountSchema, assistantAssignmentSchema, patientIdentitySchema, practiceSchema } from '@practice/contracts';
 import { type Account, type Assignment, type AuthSession, type Challenge, type Credential, type IdentityDocument, type Patient, type Practice } from './documents.js';
 import { forbidden, hashToken, IdentityError, randomSecret, unauthorized } from './security.js';
-import { IdentityStore } from './store.js';
+import { PracticeStore } from '../persistence/store.js';
 
 type Audit = IdentityDocument<'auditEvents'>;
 export interface Actor {
@@ -25,7 +25,7 @@ const activeAssignment = { $in: ['invited', 'active'] as Array<Assignment['statu
 export const assignedStatuses = { status: activeAssignment };
 
 export class IdentityContext {
-  constructor(readonly store: IdentityStore, private clock: () => Date = () => new Date()) {}
+  constructor(readonly store: PracticeStore, private clock: () => Date = () => new Date()) {}
 
   now() {
     return this.clock();
@@ -90,6 +90,14 @@ export class IdentityContext {
     }, { session: transaction });
   }
 
+  async findBookablePatient(loginId: string, doctorId: ObjectId, transaction: ClientSession) {
+    const account = await this.store.one('accounts', {
+      loginId, role: 'patient', $or: [{ status: 'active' }, { status: 'pending_setup', createdByDoctorId: doctorId }]
+    }, transaction);
+    const patient = account && await this.store.one('patientProfiles', { accountId: account._id }, transaction);
+    return account && patient ? { account, patient } : null;
+  }
+
   recordTime() {
     const now = this.now();
     return { _id: new ObjectId(), createdAt: now, updatedAt: now };
@@ -149,11 +157,13 @@ export class IdentityContext {
 
   async audit(
     context: Pick<RequestContext, 'requestId'>, actorAccountId: ObjectId, entity: Audit['entity'],
-    entityId: ObjectId, action: Audit['action'], transaction: ClientSession, doctorId?: ObjectId, caseReference?: string
+    entityId: ObjectId, action: Audit['action'], transaction: ClientSession, doctorId?: ObjectId,
+    caseReference?: string, affected?: Audit['affected']
   ) {
     await this.store.insert('auditEvents', {
       _id: new ObjectId(), at: this.now(), actorAccountId, entity, entityId, action,
-      requestId: context.requestId, ...(doctorId && { doctorId }), ...(caseReference && { caseReference })
+      requestId: context.requestId, ...(doctorId && { doctorId }), ...(caseReference && { caseReference }),
+      ...(affected && { affected })
     }, transaction);
   }
 

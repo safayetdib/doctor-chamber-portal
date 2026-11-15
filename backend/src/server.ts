@@ -6,9 +6,11 @@ import { createLogger } from './logger.js';
 import { AccessService } from './identity/access.js';
 import { AuthService } from './identity/auth.js';
 import { IdentityContext } from './identity/context.js';
-import { createIdentityRouter } from './identity/routes.js';
+import { createApiRouter } from './identity/routes.js';
 import { DevelopmentSms, randomSecret } from './identity/security.js';
-import { IdentityStore } from './identity/store.js';
+import { PracticeStore } from './persistence/store.js';
+import { BookingService } from './scheduling/bookings.js';
+import { SessionService } from './scheduling/sessions.js';
 
 async function main() {
   const config = parseEnvironment(process.env);
@@ -19,13 +21,16 @@ async function main() {
     return;
   }
   const database = createDatabase(config);
-  const store = new IdentityStore(database.client, database.db);
+  const store = new PracticeStore(database.client, database.db);
   const identity = new IdentityContext(store);
   const auth = new AuthService(identity, new DevelopmentSms(), config.IDENTITY_OTP_SECRET ?? randomSecret(), false);
   let shuttingDown = false;
   const server = createServer(createApp({
     logger,
-    identityRouter: createIdentityRouter(auth, new AccessService(identity), config.PUBLIC_APP_ORIGIN, config.PUBLIC_APP_ORIGIN.startsWith('https:')),
+    apiRouter: createApiRouter(
+      auth, new AccessService(identity), new SessionService(identity), new BookingService(identity),
+      config.PUBLIC_APP_ORIGIN, config.PUBLIC_APP_ORIGIN.startsWith('https:')
+    ),
     checkReady: async () => {
       if (shuttingDown) throw new Error('Shutting down');
       await database.checkReady();
@@ -44,7 +49,7 @@ async function main() {
     });
   } catch {
     await database.close();
-    logger.fatal('Startup failed. Check database availability, replica-set setup, identity migration, and bind address.');
+    logger.fatal('Startup failed. Check database availability, replica-set setup, migrations, and bind address.');
     process.exitCode = 1;
     return;
   }

@@ -1,5 +1,6 @@
 import { argon2, createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import type { ApiError } from '@practice/contracts';
 
 const deriveArgon2 = promisify(argon2);
 const hashOptions = { parallelism: 1, tagLength: 32, memory: 19_456, passes: 2 };
@@ -41,7 +42,10 @@ export async function verifyPassword(password: string, stored?: string) {
 }
 
 export class IdentityError extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) {
+  constructor(
+    readonly status: number, readonly code: string, message: string,
+    readonly details?: ApiError['error']['details']
+  ) {
     super(message);
   }
 }

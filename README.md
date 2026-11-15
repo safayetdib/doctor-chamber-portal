@@ -26,7 +26,7 @@ From a second terminal at the repository root, initialize the replica set on fir
 pnpm --filter @practice/backend db:init:local
 pnpm db:check
 pnpm --filter @practice/contracts build
-pnpm --filter @practice/backend db:migrate
+pnpm --filter @practice/backend db:migrate:local
 pnpm dev
 ```
 
@@ -48,7 +48,7 @@ pnpm dev
 
 ### Open the app
 
-Open http://127.0.0.1:3000. The frontend proxies `/api/*` to the backend on http://127.0.0.1:4000. The API requires a writable replica set and the explicit identity migration. To preview only the frontend, run `pnpm --filter @practice/contracts build`, then `pnpm --filter @practice/frontend dev`; its service check will accurately show unavailable until the backend runs.
+Open http://127.0.0.1:3000. The frontend proxies `/api/*` to the backend on http://127.0.0.1:4000. The API requires a writable replica set and the explicit database migration. To preview only the frontend, run `pnpm --filter @practice/contracts build`, then `pnpm --filter @practice/frontend dev`; its service check will accurately show unavailable until the backend runs.
 
 For simultaneous editing, root `pnpm dev` watches contracts and applications. After changing shared contracts, restart an app if its watcher does not pick up rebuilt workspace output.
 
@@ -60,9 +60,10 @@ For simultaneous editing, root `pnpm dev` watches contracts and applications. Af
 | `pnpm check` | Lint, typecheck, tests and production builds |
 | `pnpm db:up` | Start and initialize the Compose replica set |
 | `pnpm db:check` | Validate connection and writable replica-set topology |
-| `pnpm --filter @practice/backend db:migrate` | Apply the identity collection validators and indexes |
+| `pnpm --filter @practice/backend db:migrate` | Apply collection validators and indexes |
+| `pnpm --filter @practice/backend db:migrate:local` | Apply migrations to the authenticated Scoop database using a temporary migration account |
 | `pnpm --filter @practice/backend seed:superuser` | Create a development administrator from explicit env inputs |
-| `pnpm --filter @practice/backend test:integration` | Run auth and practice tests in isolated collections on a writable development replica set |
+| `pnpm --filter @practice/backend test:integration` | Run identity, scheduling, and booking tests in isolated collections on a writable development replica set |
 | `pnpm db:down` | Stop the Compose database, preserving its volume |
 | `pnpm --filter @practice/backend start` | Run previously built API |
 | `pnpm --filter @practice/frontend start` | Run previously built frontend |
@@ -72,7 +73,7 @@ Liveness: `/api/v1/health/live`. Readiness: `/api/v1/health/ready` (unavailable 
 ## Development boundaries
 
 - `frontend/`: presentation only; no database access.
-- `backend/`: validated environment, API, infrastructure and identity/access domain services.
+- `backend/`: validated environment, persistence, identity, scheduling, and booking services.
 - `packages/contracts/`: public runtime schemas and TypeScript types, no credential or database exports.
 - `infra/`: local-only MongoDB setup. The unauthenticated container is bound to loopback and is not a production deployment configuration.
 - CI repeats the checks and verifies the Compose replica set on Linux.
@@ -99,6 +100,24 @@ Send setup invitations privately. In this backend checkpoint the API returns a s
 For an account without an authorized phone, an administrator can issue an operator recovery token after independently confirming the caller's identity. Record the approved case outside the application and send an opaque `caseReference` of the form `CASE-ABC123` with the login ID and the administrator's current password. Deliver the token through the verified private channel. The issuance and completion audit events link to that case reference.
 
 The development SMS adapter stores codes in memory for retrieval through the integration harness. Set `IDENTITY_OTP_SECRET` in the gitignored environment to keep outstanding codes verifiable over a development restart. An unset value uses a per-process secret. Production startup is gated on a real SMS provider and administrator MFA.
+
+## Sessions and bookings
+
+| Workflow | Routes under `/api/v1` |
+| --- | --- |
+| Staff configure their practice | `GET/PUT /practice/chamber`, `GET/PUT /practice/reference-schedule`, `GET /practice/reference-schedule/prefill/:date` |
+| Staff prepare and publish sessions | `GET/POST /practice/sessions`, `PATCH /practice/sessions/:sessionId`, `POST /practice/sessions/:sessionId/publish`, `PATCH /practice/sessions/:sessionId/booking-open` |
+| Browse public availability | `GET /practices`, `GET /practices/:doctorId/sessions` |
+| Create and cancel bookings | `POST /sessions/:sessionId/bookings`, `DELETE /bookings/:bookingId` |
+| Read booking history | `GET /bookings` for the patient, `GET /practice/sessions/:sessionId/bookings` for authorized staff |
+
+Staff draft sessions with a local `serviceDate`, `startTime`, and `endTime` in Asia/Dhaka, and can supply an `endDate` for an overnight session. Session times in responses use UTC ISO timestamps. Reference schedules supply defaults through the prefill endpoint. Publishing and editing use the session's `queueRevision` as `expectedRevision`.
+
+Use an `Idempotency-Key` header for booking creation and cancellation. Patients send an empty JSON object to book for themselves. Staff send `patientLoginId`, including for patients they preregistered. When the response asks for confirmation, use its warning codes and revision in `confirmation.acknowledged` and `confirmation.expectedRevision`. Repeat a committed request with the original key and payload to retrieve its original result.
+
+### Migrating an existing database
+
+The scheduling migration extends the existing audit collection validator. On Scoop, run `db:migrate:local` after building contracts. On another authenticated replica set, supply a scoped migration credential with collection management privileges in `MONGODB_MIGRATION_URI` when running `db:migrate`. The backend continues to use `MONGODB_URI` for app access.
 
 ## Operational notes
 

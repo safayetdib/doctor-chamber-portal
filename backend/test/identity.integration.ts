@@ -9,11 +9,12 @@ import { createDatabase } from '../src/database.js';
 import { AccessService } from '../src/identity/access.js';
 import { AuthService } from '../src/identity/auth.js';
 import { IdentityContext } from '../src/identity/context.js';
-import { identityDocuments } from '../src/identity/documents.js';
 import { DevelopmentSms, hashToken, randomSecret } from '../src/identity/security.js';
-import { IdentityStore } from '../src/identity/store.js';
+import { collectionNames, PracticeStore } from '../src/persistence/store.js';
 import { createLogger } from '../src/logger.js';
-import { createIdentityRouter } from '../src/identity/routes.js';
+import { createApiRouter } from '../src/identity/routes.js';
+import { BookingService } from '../src/scheduling/bookings.js';
+import { SessionService } from '../src/scheduling/sessions.js';
 
 const origin = 'https://practice.test';
 const password = 'Fictional test password!';
@@ -23,7 +24,7 @@ const doctorInput = { name: 'Demo Doctor', displayName: 'Demo Practice', contact
 const patientInput = { name: 'Demo Patient', contactPhone: phone };
 const prefix = 'identity_test_' + randomBytes(8).toString('hex') + '_';
 const database = createDatabase(parseEnvironment(process.env));
-const store = new IdentityStore(database.client, database.db, prefix);
+const store = new PracticeStore(database.client, database.db, prefix);
 let offsetMs = 0;
 const identity = new IdentityContext(store, () => new Date(Date.now() + offsetMs));
 const sms = new DevelopmentSms();
@@ -32,7 +33,7 @@ const auth = new AuthService(identity, sms, randomSecret(), false);
 const api = request(createApp({
   logger: createLogger('silent'),
   checkReady: database.checkReady,
-  identityRouter: createIdentityRouter(auth, access, origin, true)
+  apiRouter: createApiRouter(auth, access, new SessionService(identity), new BookingService(identity), origin, true)
 }));
 const path = '/api/v1';
 let rootCookie: string;
@@ -82,7 +83,7 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     if (connected) {
-      for (const name of Object.keys(identityDocuments) as Array<keyof typeof identityDocuments>) {
+      for (const name of collectionNames) {
         const collection = store.collection(name);
         if (await database.db.listCollections({ name: collection.collectionName }).hasNext()) await collection.drop();
       }

@@ -9,10 +9,10 @@ import { IdentityError } from './identity/security.js';
 interface AppDependencies {
   logger: Logger;
   checkReady: () => Promise<void>;
-  identityRouter?: express.Router;
+  apiRouter?: express.Router;
 }
 
-export function createApp({ logger, checkReady, identityRouter }: AppDependencies) {
+export function createApp({ logger, checkReady, apiRouter }: AppDependencies) {
   const app = express();
   app.disable('x-powered-by');
   app.use(helmet());
@@ -47,7 +47,7 @@ export function createApp({ logger, checkReady, identityRouter }: AppDependencie
     }
   });
 
-  if (identityRouter) app.use('/api/v1', identityRouter);
+  if (apiRouter) app.use('/api/v1', apiRouter);
 
   app.use((request, response) => {
     response.status(404).json({
@@ -59,7 +59,10 @@ export function createApp({ logger, checkReady, identityRouter }: AppDependencie
     response.setHeader('Cache-Control', 'no-store');
     if (error instanceof IdentityError) {
       response.status(error.status).json({
-        error: { code: error.code, message: error.message, requestId: String(request.id) }
+        error: {
+          code: error.code, message: error.message, requestId: String(request.id),
+          ...(error.details && { details: error.details })
+        }
       } satisfies ApiError);
       return;
     }

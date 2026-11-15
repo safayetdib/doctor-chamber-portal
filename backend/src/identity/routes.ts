@@ -1,5 +1,4 @@
 import { Router, type Request, type Response } from 'express';
-import { z } from 'zod';
 import {
   assistantInviteSchema, challengeResponseSchema, createDoctorSchema, idSchema, loginSchema,
   operatorRecoveryResponseSchema, operatorRecoverySchema, otpAccountSchema, otpSchema, patientDetailsSchema, patientLookupSchema, phoneGrantSchema,
@@ -9,14 +8,14 @@ import { AccessService } from './access.js';
 import { AuthService, sessionLifetimeMs } from './auth.js';
 import type { RequestContext } from './context.js';
 import { IdentityError } from './security.js';
+import { parse } from '../http/validation.js';
+import type { BookingService } from '../scheduling/bookings.js';
+import type { SessionService } from '../scheduling/sessions.js';
+import { createSchedulingRouter } from '../scheduling/routes.js';
 
-function parse<T>(schema: z.ZodType<T>, value: unknown): T {
-  const result = schema.safeParse(value);
-  if (!result.success) throw new IdentityError(400, 'INVALID_INPUT', 'The request fields are invalid.');
-  return result.data;
-}
-
-export function createIdentityRouter(auth: AuthService, access: AccessService, origin: string, secure: boolean) {
+export function createApiRouter(
+  auth: AuthService, access: AccessService, sessions: SessionService, bookings: BookingService, origin: string, secure: boolean
+) {
   const router = Router();
   const cookieName = secure ? '__Host-practice_session' : 'practice_session';
   const cookie = { httpOnly: true, secure, sameSite: 'strict', path: '/' } as const;
@@ -150,5 +149,6 @@ export function createIdentityRouter(auth: AuthService, access: AccessService, o
     response.status(201).json(setupInvitationSchema.parse(invitation));
   });
 
+  router.use(createSchedulingRouter(sessions, bookings, context));
   return router;
 }

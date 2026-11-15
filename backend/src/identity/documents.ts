@@ -1,18 +1,32 @@
-import { ObjectId } from 'mongodb';
 import { z } from 'zod';
 import { accountStatusSchema, assignmentStatusSchema, practiceStatusSchema, roleSchema } from '@practice/contracts';
+import { count, date, digest, objectId, text, timestamps } from '../persistence/bson.js';
 
-const objectId = z.instanceof(ObjectId);
-const date = z.date();
-const count = z.int().nonnegative();
-const text = z.string().min(1);
-const digest = z.string().regex(/^[0-9a-f]{64}$/);
-const timestamps = { _id: objectId, createdAt: date, updatedAt: date };
 const patientDetails = {
   birthDate: text.optional(),
   gender: text.optional(),
   address: text.optional()
 };
+
+const identityAuditEntities = ['account', 'practice', 'assistant_assignment'] as const;
+const identityAuditActions = [
+  'superuser_seeded', 'patient_signed_up', 'patient_registered', 'patient_corrected',
+  'setup_reissued', 'account_activated', 'profile_updated', 'phone_login_enabled',
+  'phone_login_disabled', 'password_recovered', 'operator_recovery_issued', 'operator_recovery_completed',
+  'practice_created', 'practice_enabled',
+  'practice_disabled', 'assistant_invited', 'assistant_accepted', 'assistant_revoked'
+] as const;
+export const identityAuditV1 = z.strictObject({
+  _id: objectId,
+  at: date,
+  actorAccountId: objectId,
+  doctorId: objectId.optional(),
+  entity: z.enum(identityAuditEntities),
+  entityId: objectId,
+  action: z.enum(identityAuditActions),
+  requestId: text,
+  caseReference: text.optional()
+});
 
 export const identityDocuments = {
   accounts: z.strictObject({
@@ -81,22 +95,13 @@ export const identityDocuments = {
     acceptedAt: date.optional(),
     revokedAt: date.optional()
   }),
-  auditEvents: z.strictObject({
-    _id: objectId,
-    at: date,
-    actorAccountId: objectId,
-    doctorId: objectId.optional(),
-    entity: z.enum(['account', 'practice', 'assistant_assignment']),
-    entityId: objectId,
+  auditEvents: identityAuditV1.extend({
+    entity: z.enum([...identityAuditEntities, 'chamber', 'reference_schedule', 'session', 'booking']),
     action: z.enum([
-      'superuser_seeded', 'patient_signed_up', 'patient_registered', 'patient_corrected',
-      'setup_reissued', 'account_activated', 'profile_updated', 'phone_login_enabled',
-      'phone_login_disabled', 'password_recovered', 'operator_recovery_issued', 'operator_recovery_completed',
-      'practice_created', 'practice_enabled',
-      'practice_disabled', 'assistant_invited', 'assistant_accepted', 'assistant_revoked'
+      ...identityAuditActions, 'chamber_configured', 'reference_schedule_configured', 'session_drafted',
+      'session_edited', 'session_published', 'session_booking_changed', 'booking_created', 'booking_cancelled'
     ]),
-    requestId: text,
-    caseReference: text.optional()
+    affected: z.strictObject({ sessions: count, bookings: count }).optional()
   }),
   rateLimitBuckets: z.strictObject({ _id: digest, count, expiresAt: date })
 };
@@ -110,20 +115,3 @@ export type AuthSession = IdentityDocument<'authSessions'>;
 export type Practice = IdentityDocument<'doctorProfiles'>;
 export type Assignment = IdentityDocument<'assistantAssignments'>;
 export type Patient = IdentityDocument<'patientProfiles'>;
-
-export function collectionValidator(collection: IdentityCollection) {
-  const json = z.toJSONSchema(identityDocuments[collection], {
-    target: 'draft-04',
-    unrepresentable: 'any',
-    override: (context) => {
-      const { zodSchema, jsonSchema } = context;
-      if (zodSchema === objectId || zodSchema === date || zodSchema === count) {
-        for (const key of Object.keys(jsonSchema)) delete jsonSchema[key];
-        jsonSchema.bsonType = zodSchema === objectId ? 'objectId' : zodSchema === date ? 'date' : ['int', 'long'];
-        if (zodSchema === count) jsonSchema.minimum = 0;
-      }
-    }
-  });
-  delete json.$schema;
-  return { $jsonSchema: json };
-}

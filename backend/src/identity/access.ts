@@ -7,7 +7,8 @@ import {
 import { assignedStatuses, assignmentDto, IdentityContext, patientDto, practiceDto, type RequestContext } from './context.js';
 import { identityDocuments, type Account } from './documents.js';
 import { forbidden, hashPassword, IdentityError } from './security.js';
-import { duplicateKey } from './store.js';
+import { duplicateKey } from '../persistence/store.js';
+import { preparePracticeDeactivation } from '../scheduling/deactivation.js';
 
 const notFound = () => new IdentityError(404, 'NOT_FOUND', 'The requested record was not found.');
 
@@ -112,17 +113,19 @@ export class AccessService {
       if (!practice) throw notFound();
       if (status === practice.practiceStatus) return practiceDto(practice);
       const now = this.identity.now();
+      await this.identity.lockPractice(practice, transaction);
+      const affected = status === 'disabled'
+        ? await preparePracticeDeactivation(this.identity, practice._id, now, transaction)
+        : undefined;
       await this.store.collection('doctorProfiles').updateOne({ _id: practice._id }, {
-        $inc: { accessRevision: 1 },
         $set: {
           practiceStatus: status, updatedAt: now,
           ...(status === 'disabled' && { disabledAt: now, disabledByAccountId: actor.account._id })
         },
         ...(status === 'active' && { $unset: { disabledAt: '', disabledByAccountId: '' } })
       }, { session: transaction });
-      // Session cleanup and running-session guards are added with the session domain.
       await this.identity.audit(context, actor.account._id, 'practice', practice._id,
-        status === 'active' ? 'practice_enabled' : 'practice_disabled', transaction, practice._id);
+        status === 'active' ? 'practice_enabled' : 'practice_disabled', transaction, practice._id, undefined, affected);
       return practiceDto({ ...practice, practiceStatus: status });
     });
   }
@@ -247,12 +250,9 @@ export class AccessService {
     return this.store.transaction(async (transaction) => {
       const actor = await this.identity.actor(context.token, transaction);
       const practice = await this.identity.staff(actor, transaction, false);
-      const account = await this.store.one('accounts', {
-        loginId, role: 'patient', $or: [{ status: 'active' }, { status: 'pending_setup', createdByDoctorId: practice._id }]
-      }, transaction);
-      const patient = account && await this.store.one('patientProfiles', { accountId: account._id }, transaction);
-      if (!account || !patient) throw notFound();
-      return patientDto(patient, account);
+      const result = await this.identity.findBookablePatient(loginId, practice._id, transaction);
+      if (!result) throw notFound();
+      return patientDto(result.patient, result.account);
     });
   }
 

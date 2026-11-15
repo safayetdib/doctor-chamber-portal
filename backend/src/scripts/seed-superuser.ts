@@ -3,7 +3,7 @@ import { parseEnvironment } from '../config.js';
 import { createDatabase } from '../database.js';
 import { AccessService } from '../identity/access.js';
 import { IdentityContext } from '../identity/context.js';
-import { IdentityStore } from '../identity/store.js';
+import { PracticeStore } from '../persistence/store.js';
 
 async function seed() {
   const loginId = loginIdSchema.parse(process.env.SUPERUSER_LOGIN_ID);
@@ -12,7 +12,7 @@ async function seed() {
   const database = createDatabase(parseEnvironment(process.env));
   try {
     await database.connect();
-    const store = new IdentityStore(database.client, database.db);
+    const store = new PracticeStore(database.client, database.db);
     await store.checkMigrated();
     const created = await new AccessService(new IdentityContext(store)).seedSuperuser(loginId, name, password);
     process.stdout.write(created ? 'Superuser seeded.\n' : 'Superuser already exists.\n');
