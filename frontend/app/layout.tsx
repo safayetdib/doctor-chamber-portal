@@ -3,8 +3,8 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Chamber queue — development preview',
-  description: 'Practice management demonstration workspace.'
+  title: 'Chamber queue',
+  description: 'Book consultations and manage your practice queue.'
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {

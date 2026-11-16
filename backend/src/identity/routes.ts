@@ -13,10 +13,11 @@ import type { BookingService } from '../scheduling/bookings.js';
 import type { SessionService } from '../scheduling/sessions.js';
 import { createSchedulingRouter } from '../scheduling/routes.js';
 import type { QueueService } from '../queue/service.js';
+import type { QueueEvents } from '../queue/events.js';
 
 export function createApiRouter(
   auth: AuthService, access: AccessService, sessions: SessionService, bookings: BookingService, queue: QueueService,
-  origin: string, secure: boolean
+  origin: string, secure: boolean, queueEvents?: QueueEvents
 ) {
   const router = Router();
   const cookieName = secure ? '__Host-practice_session' : 'practice_session';
@@ -151,6 +152,6 @@ export function createApiRouter(
     response.status(201).json(setupInvitationSchema.parse(invitation));
   });
 
-  router.use(createSchedulingRouter(sessions, bookings, queue, context));
+  router.use(createSchedulingRouter(sessions, bookings, queue, context, queueEvents));
   return router;
 }

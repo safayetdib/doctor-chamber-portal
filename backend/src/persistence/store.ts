@@ -80,6 +80,24 @@ export class PracticeStore {
     }));
   }
 
+  watchQueue() {
+    const updates = (name: CollectionName, ...fields: string[]) => ({
+      'ns.coll': this.collection(name).collectionName,
+      $or: [
+        { operationType: { $in: ['replace', 'delete'] } },
+        ...fields.map((field) => ({ [`updateDescription.updatedFields.${field}`]: { $exists: true } }))
+      ]
+    });
+    return this.db.watch([{ $match: { $or: [
+      { 'ns.coll': this.collection('sessions').collectionName },
+      updates('assistantAssignments', 'status'),
+      updates('doctorProfiles', 'practiceStatus'),
+      updates('authSessions', 'revokedAt'),
+      updates('credentials', 'authVersion'),
+      updates('accounts', 'status')
+    ] } }], { maxAwaitTimeMS: 1000 });
+  }
+
   async migrate() {
     for (const name of collectionNames) {
       const collection = this.collection(name);

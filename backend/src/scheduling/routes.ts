@@ -9,9 +9,11 @@ import { parse } from '../http/validation.js';
 import type { BookingService } from './bookings.js';
 import type { SessionService } from './sessions.js';
 import type { QueueService } from '../queue/service.js';
+import type { QueueEvents } from '../queue/events.js';
 
 export function createSchedulingRouter(
-  sessions: SessionService, bookings: BookingService, queue: QueueService, context: (request: Request) => RequestContext
+  sessions: SessionService, bookings: BookingService, queue: QueueService, context: (request: Request) => RequestContext,
+  queueEvents?: QueueEvents
 ) {
   const router = Router();
 
@@ -82,6 +84,14 @@ export function createSchedulingRouter(
   router.get('/sessions/:sessionId/queue', async (request, response) => {
     response.json(await queue.patientSnapshot(context(request), parse(idSchema, request.params.sessionId)));
   });
+  if (queueEvents) {
+    router.get('/practice/sessions/:sessionId/queue/events', async (request, response) => {
+      await queueEvents.connect(context(request), parse(idSchema, request.params.sessionId), 'staff', response);
+    });
+    router.get('/sessions/:sessionId/queue/events', async (request, response) => {
+      await queueEvents.connect(context(request), parse(idSchema, request.params.sessionId), 'patient', response);
+    });
+  }
   router.post('/practice/sessions/:sessionId/queue/commands', async (request, response) => {
     response.json(await queue.execute(
       context(request), parse(idSchema, request.params.sessionId), parse(queueCommandSchema, request.body),

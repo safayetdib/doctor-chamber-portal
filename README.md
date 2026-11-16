@@ -48,7 +48,7 @@ pnpm dev
 
 ### Open the app
 
-Open http://127.0.0.1:3000. The frontend proxies `/api/*` to the backend on http://127.0.0.1:4000. The API requires a writable replica set and the explicit database migration. To preview only the frontend, run `pnpm --filter @practice/contracts build`, then `pnpm --filter @practice/frontend dev`; its service check will accurately show unavailable until the backend runs.
+Open http://127.0.0.1:3000. The frontend proxies `/api/*` to the backend on http://127.0.0.1:4000. The API requires a writable replica set and the explicit database migration. If the sign-in screen reports that the service is unavailable, check `pnpm db:check` and retry the connection.
 
 For simultaneous editing, root `pnpm dev` watches contracts and applications. After changing shared contracts, restart an app if its watcher does not pick up rebuilt workspace output.
 
@@ -95,7 +95,7 @@ The identity API is under `/api/v1`. For direct API testing, send the configured
 | Assigned practice and assistant management | `GET /practice`, `GET/POST /practice/assistant`, `POST /practice/assistant/:assignmentId/setup`, `DELETE /practice/assistant/:assignmentId` |
 | Staff patient registration | `POST /patients`, `POST /patients/lookup`, `PATCH /patients/:patientId`, `POST /patients/:patientId/setup` |
 
-Send setup invitations privately. In this backend checkpoint the API returns a setup token for submission in the setup request body. The frontend setup screen is part of the demo UI segment.
+Send setup invitations privately. The browser displays a setup link after creating an invitation. Its token is carried in the URL fragment and submitted in the setup request body.
 
 For an account without an authorized phone, an administrator can issue an operator recovery token after independently confirming the caller's identity. Record the approved case outside the application and send an opaque `caseReference` of the form `CASE-ABC123` with the login ID and the administrator's current password. Deliver the token through the verified private channel. The issuance and completion audit events link to that case reference.
 
@@ -133,6 +133,16 @@ Staff commands take an `Idempotency-Key` header and an `expectedRevision` from t
 The special booking route takes the revision, `patientLoginId`, and an optional `priorityReason`. If the API returns capacity or overtime warnings, submit those codes in `acknowledged` with the latest revision. The regular booking route continues to create regular bookings when staff confirm overflow.
 
 Patients with a booking can read their own outcome. During a viewable session, the surrounding queue uses anonymous serials and status badges. Estimates use the consultation start, running duration, and current waiting order at `calculatedAt`.
+
+### Walk through the browser demo
+
+1. Start the local stack. If you need a first administrator, supply the seed inputs described above and run `pnpm --filter @practice/backend seed:superuser`.
+2. Sign in as the administrator. Create a practice and open the doctor's setup link in a separate browser profile or private window. Choose a password.
+3. As the doctor, save a chamber under **Practice settings**. Return to **Sessions**, create a dated draft, and publish it. Choose a scheduled end in the future so patients can book it.
+4. Under **Book a patient**, expand **Register a new patient** and issue an invitation with synthetic details. Activate the patient in a browser profile separate from the doctor. In the patient workspace, pick the practice and book the session. Staff can also book against the patient's login ID.
+5. As the doctor, start the session and call the next patient. The patient screen refreshes automatically. Finish the consultation and end the session, then check the completed booking in history.
+
+Staff and patient queue APIs provide authenticated `/events` endpoints alongside their snapshots. The events signal when to refetch and carry no booking data. The browser polls while disconnected and retries the stream. A separate browser profile per role keeps the sessions independent.
 
 ## Operational notes
 

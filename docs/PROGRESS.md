@@ -8,7 +8,7 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 | Accounts and access | Backend implemented with local replica-set verification |
 | Sessions and bookings | Backend implemented with local replica-set verification |
 | Queue engine | Backend implemented with local replica-set verification |
-| Demonstration UI and live updates | Not started |
+| Demonstration UI and live updates | Implemented with local browser and replica-set verification |
 | Hardening and operating documentation | Not started |
 
 ## Completed in the foundation sitting
@@ -108,8 +108,27 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 - `pnpm db:check` passed. `db:migrate:local` upgraded the existing development database, and a subsequent standard `db:migrate` passed with the app account.
 - The queue is available through REST snapshots and commands. Browser role screens and SSE transport belong to the next segment. Docker Compose and remote CI remain pending.
 
+## Demonstration UI and live updates
+
+- Committed the Queue engine checkpoint as `5928b32` before starting this segment.
+- Replaced the browser preview with password sign-in, invitation activation, and role-specific workspaces. Administrators provision practices. Doctors and assistants configure sessions and operate the queue. Patients browse availability, reserve a slot, and follow their own wait estimate.
+- Staff can configure chamber and reference hours, manage assistant invitations, register patients, confirm overflow, and act on the queue with revision-aware controls. Missed bookings appear separately with status text.
+- Added authenticated SSE endpoints backed by a shared MongoDB change stream. Events prompt a fresh authorized snapshot and carry no patient or booking data. Session or identity changes and heartbeats recheck access. The browser retries streams and polls during interruptions.
+- Documented the synthetic-data walkthrough from practice creation to session closure in README.md.
+
+### Verification actually performed
+
+- `pnpm check` passed lint, type checking, unit tests, and builds on the pinned toolchain.
+- `pnpm db:check` and the authenticated replica-set integration suite passed. The SSE integration test verifies refresh-only frames after booking, access denial for an unbooked patient, closure after assistant revocation, and authoritative snapshots after reconnect.
+- The local browser walkthrough used isolated synthetic fixtures in Edge on desktop and mobile. It exercised sign-in, provisioning, private setup links, chamber setup, session publication, patient booking, polling fallback, reconnection, staff call-next, consultation completion, and session closure.
+
+### Limits at this checkpoint
+
+- The browser demo uses password sign-in and invitation-based activation. SMS flows are available through the API, with test access through the in-memory adapter. Production startup requires real SMS delivery and administrator MFA.
+- Docker Compose and remote CI verification remain pending.
+
 ## Start here next sitting
 
-1. Read PLAN.md and this handoff. Use the pinned toolchain, apply the documented migration, and run the combined replica-set integration suite.
-2. Begin **Demonstration UI and live updates** with thin role screens that call the existing APIs. Use the queue snapshot routes for initial state and refresh after commands.
-3. Add authenticated SSE refresh signals, access rechecks, reconnect and polling fallback, plus a walkthrough from patient booking through session closure. Keep the queue calculations and authorization in the backend.
+1. Read PLAN.md and this handoff. Run the pinned workspace checks, replica-set integration suite, and browser walkthrough.
+2. Begin **Hardening and operating documentation** with deployment and backup/restore instructions, a repeatable browser smoke suite, and the generated OpenAPI artifact.
+3. Validate local and deployment startup, recovery and revocation behavior, and the full demo on the intended deployment setup.

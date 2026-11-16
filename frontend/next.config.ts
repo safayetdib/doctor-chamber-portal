@@ -8,6 +8,8 @@ if (!['http:', 'https:'].includes(parsed.protocol) || parsed.pathname !== '/' ||
 
 const config: NextConfig = {
   poweredByHeader: false,
+  devIndicators: false,
+  agentRules: false,
   transpilePackages: ['@practice/contracts'],
   async rewrites() {
     return [{ source: '/api/:path*', destination: `${parsed.origin}/api/:path*` }];

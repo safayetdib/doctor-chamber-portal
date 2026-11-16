@@ -239,4 +239,24 @@ export class QueueService {
       });
     });
   }
+
+  async authorizeLive(context: RequestContext, sessionId: string, audience: 'staff' | 'patient') {
+    await this.store.transaction(async (transaction) => {
+      const actor = await this.identity.actor(context.token, transaction);
+      const staff = audience === 'staff' ? await this.identity.staff(actor, transaction, false) : null;
+      if (!staff && actor.account.role !== 'patient') throw forbidden();
+      const session = await this.store.one('sessions', {
+        _id: new ObjectId(sessionId), ...(staff && { doctorId: staff._id })
+      }, transaction);
+      if (!session || !unfinished(session)) throw notFound();
+      if (staff) return;
+      const practice = await this.store.one('doctorProfiles', { _id: session.doctorId, practiceStatus: 'active' }, transaction);
+      const patient = await this.store.one('patientProfiles', { accountId: actor.account._id }, transaction);
+      if (!practice || !patient) throw notFound();
+      const own = await this.store.collection('bookings').findOne({
+        ...bookingScope(session), patientId: patient._id
+      }, { session: transaction, sort: { serialNumber: -1 } });
+      if (!own || own.status === 'cancelled' || own.status === 'unserved') throw notFound();
+    });
+  }
 }

@@ -12,6 +12,7 @@ import { PracticeStore } from './persistence/store.js';
 import { BookingService } from './scheduling/bookings.js';
 import { SessionService } from './scheduling/sessions.js';
 import { QueueService } from './queue/service.js';
+import { QueueEvents } from './queue/events.js';
 
 async function main() {
   const config = parseEnvironment(process.env);
@@ -25,12 +26,14 @@ async function main() {
   const store = new PracticeStore(database.client, database.db);
   const identity = new IdentityContext(store);
   const auth = new AuthService(identity, new DevelopmentSms(), config.IDENTITY_OTP_SECRET ?? randomSecret(), false);
+  const queue = new QueueService(identity);
+  const queueEvents = new QueueEvents(store, queue);
   let shuttingDown = false;
   const server = createServer(createApp({
     logger,
     apiRouter: createApiRouter(
-      auth, new AccessService(identity), new SessionService(identity), new BookingService(identity), new QueueService(identity),
-      config.PUBLIC_APP_ORIGIN, config.PUBLIC_APP_ORIGIN.startsWith('https:')
+      auth, new AccessService(identity), new SessionService(identity), new BookingService(identity), queue,
+      config.PUBLIC_APP_ORIGIN, config.PUBLIC_APP_ORIGIN.startsWith('https:'), queueEvents
     ),
     checkReady: async () => {
       if (shuttingDown) throw new Error('Shutting down');
@@ -61,6 +64,7 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     logger.info('Shutting down');
+    queueEvents.close();
     const timeout = setTimeout(() => { process.exit(1); }, 10_000).unref();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await database.close();

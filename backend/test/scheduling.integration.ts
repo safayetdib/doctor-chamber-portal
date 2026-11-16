@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
 import { ObjectId } from 'mongodb';
 import request from 'supertest';
 import { afterAll, beforeAll, expect, it } from 'vitest';
@@ -20,6 +21,7 @@ import { collectionNames, PracticeStore } from '../src/persistence/store.js';
 import { BookingService } from '../src/scheduling/bookings.js';
 import { SessionService } from '../src/scheduling/sessions.js';
 import { QueueService } from '../src/queue/service.js';
+import { QueueEvents } from '../src/queue/events.js';
 
 const origin = 'http://practice.test';
 const password = 'Fictional scheduling test password!';
@@ -34,11 +36,14 @@ const identity = new IdentityContext(store, () => now);
 const access = new AccessService(identity);
 const sms = new DevelopmentSms();
 const auth = new AuthService(identity, sms, randomSecret(), false);
-const http = request(createApp({
+const queue = new QueueService(identity);
+const queueEvents = new QueueEvents(store, queue);
+const application = createApp({
   logger: createLogger('silent'),
   checkReady: database.checkReady,
-  apiRouter: createApiRouter(auth, access, new SessionService(identity), new BookingService(identity), new QueueService(identity), origin, false)
-}));
+  apiRouter: createApiRouter(auth, access, new SessionService(identity), new BookingService(identity), queue, origin, false, queueEvents)
+});
+const http = request(application);
 const base = '/api/v1';
 let admin: string;
 let connected = false;
@@ -539,5 +544,82 @@ it('serializes a real session start against disabling the practice', async () =>
     expect(start.status).toBe(403);
     expect(start.body.error.code).toBe('PRACTICE_DISABLED');
     expect(state.session.status).toBe('cancelled');
+  }
+});
+
+it('streams only refresh signals and closes a revoked assistant stream before the heartbeat', async () => {
+  const staff = await doctor('Live Queue Doctor');
+  const first = await patient('Live Queue Patient', '+8801700000020');
+  const second = await patient('Live Queue Observer', '+8801700000021');
+  const { sessionId } = await publish(staff.cookie);
+  const invitation = await send('post', '/practice/assistant', staff.cookie, {
+    name: 'Live Queue Assistant', contactPhone: phone
+  }).expect(201);
+  const assistant = cookie(await send('post', '/auth/setup', '', {
+    token: invitation.body.invitation.setupToken, password
+  }).expect(200));
+  await book(sessionId, first.cookie, 'live-first-booking').expect(201);
+
+  const server = createServer(application);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('The test API needs a TCP listener.');
+  const url = 'http://127.0.0.1:' + address.port + base;
+  const patientPath = '/sessions/' + sessionId + '/queue/events';
+  const staffPath = '/practice/sessions/' + sessionId + '/queue/events';
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), 8000);
+
+  async function stream(path: string, session: string) {
+    const result = await fetch(url + path, { headers: { Cookie: session }, signal: controller.signal });
+    expect(result.status).toBe(200);
+    expect(result.headers.get('Content-Type')).toMatch(/^text\/event-stream/);
+    const reader = result.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    return {
+      async next() {
+        while (!buffer.includes('\n\n')) {
+          const chunk = await reader.read();
+          if (chunk.done) return null;
+          buffer += decoder.decode(chunk.value, { stream: true });
+        }
+        const boundary = buffer.indexOf('\n\n');
+        const frame = buffer.slice(0, boundary);
+        buffer = buffer.slice(boundary + 2);
+        return frame;
+      },
+      cancel: () => reader.cancel()
+    };
+  }
+
+  try {
+    const denied = await fetch(url + patientPath, { headers: { Cookie: second.cookie }, signal: controller.signal });
+    expect(denied.status).toBe(404);
+    await denied.arrayBuffer();
+    const patientEvents = await stream(patientPath, first.cookie);
+    const refresh = 'event: refresh\ndata: {}';
+    expect(await patientEvents.next()).toBe(refresh);
+    // The second refresh is sent after MongoDB has opened the shared change stream.
+    expect(await patientEvents.next()).toBe(refresh);
+    const assistantEvents = await stream(staffPath, assistant);
+    expect(await assistantEvents.next()).toBe(refresh);
+    await book(sessionId, second.cookie, 'live-second-booking').expect(201);
+    expect(await patientEvents.next()).toBe(refresh);
+    expect(await assistantEvents.next()).toBe(refresh);
+
+    await send('delete', '/practice/assistant/' + invitation.body.assignment.assignmentId, staff.cookie).expect(204);
+    expect(await assistantEvents.next()).toBeNull();
+    await patientEvents.cancel();
+    const reconnected = await stream(patientPath, first.cookie);
+    expect(await reconnected.next()).toBe(refresh);
+    const snapshot = patientQueueSnapshotSchema.parse((await get('/sessions/' + sessionId + '/queue', first.cookie).expect(200)).body);
+    expect(snapshot.waiting.map((slot) => slot.serialNumber)).toEqual([1, 2]);
+    await reconnected.cancel();
+  } finally {
+    clearTimeout(deadline);
+    controller.abort();
+    queueEvents.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
