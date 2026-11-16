@@ -1,13 +1,20 @@
 import { z } from 'zod';
 import {
   bookingStatusSchema, bookingSummarySchema, capacitySchema, consultationMinutesSchema,
-  dateSchema, practiceTimezone, queueClassSchema, referenceScheduleRequestSchema, sessionStatusSchema, unservedCauseSchema
+  dateSchema, practiceTimezone, queueClassSchema, queueCommandResultSchema, referenceScheduleRequestSchema,
+  sessionStatusSchema, unservedCauseSchema
 } from '@practice/contracts';
 import { count, date, digest, objectId, text, timestamps } from '../persistence/bson.js';
 
 const positive = z.int().positive();
 const contactPhone = z.string().regex(/^\+[1-9][0-9]{6,14}$/);
 const timezone = z.literal(practiceTimezone);
+export const bookingIdempotencyV1 = z.strictObject({
+  ...timestamps, actorAccountId: objectId, operation: text, key: text, payloadHash: digest,
+  result: bookingSummarySchema, expiresAt: date
+});
+const commandResultSchema = z.union([bookingSummarySchema, queueCommandResultSchema]);
+export type CommandResult = z.infer<typeof commandResultSchema>;
 
 export const schedulingDocuments = {
   chambers: z.strictObject({
@@ -31,10 +38,7 @@ export const schedulingDocuments = {
     lastMissedAt: date.optional(), lastRestoredAt: date.optional(), unservedAt: date.optional(),
     unservedCause: unservedCauseSchema.optional()
   }),
-  idempotencyRecords: z.strictObject({
-    ...timestamps, actorAccountId: objectId, operation: text, key: text, payloadHash: digest,
-    result: bookingSummarySchema, expiresAt: date
-  })
+  idempotencyRecords: bookingIdempotencyV1.extend({ result: commandResultSchema })
 };
 
 export type Chamber = z.infer<typeof schedulingDocuments.chambers>;

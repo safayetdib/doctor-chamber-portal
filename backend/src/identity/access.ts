@@ -125,7 +125,7 @@ export class AccessService {
         ...(status === 'active' && { $unset: { disabledAt: '', disabledByAccountId: '' } })
       }, { session: transaction });
       await this.identity.audit(context, actor.account._id, 'practice', practice._id,
-        status === 'active' ? 'practice_enabled' : 'practice_disabled', transaction, practice._id, undefined, affected);
+        status === 'active' ? 'practice_enabled' : 'practice_disabled', transaction, practice._id, affected && { affected });
       return practiceDto({ ...practice, practiceStatus: status });
     });
   }

@@ -1,16 +1,17 @@
 import { Router, type Request } from 'express';
 import {
-  bookingListQuerySchema, chamberRequestSchema, createBookingSchema, createSessionSchema, dateSchema,
+  bookingListQuerySchema, cancelBookingRequestSchema, chamberRequestSchema, createBookingSchema, createSessionSchema, dateSchema,
   editSessionSchema, idSchema, idempotencyKeySchema, publicPracticeQuerySchema, publishSessionSchema, referenceScheduleRequestSchema,
-  sessionListQuerySchema, setBookingOpenSchema
+  queueCommandSchema, sessionListQuerySchema, setBookingOpenSchema, specialBookingSchema
 } from '@practice/contracts';
 import type { RequestContext } from '../identity/context.js';
 import { parse } from '../http/validation.js';
 import type { BookingService } from './bookings.js';
 import type { SessionService } from './sessions.js';
+import type { QueueService } from '../queue/service.js';
 
 export function createSchedulingRouter(
-  sessions: SessionService, bookings: BookingService, context: (request: Request) => RequestContext
+  sessions: SessionService, bookings: BookingService, queue: QueueService, context: (request: Request) => RequestContext
 ) {
   const router = Router();
 
@@ -71,7 +72,27 @@ export function createSchedulingRouter(
   });
   router.delete('/bookings/:bookingId', async (request, response) => {
     const key = parse(idempotencyKeySchema, request.get('Idempotency-Key'));
-    response.json(await bookings.cancel(context(request), parse(idSchema, request.params.bookingId), key));
+    const { expectedRevision } = parse(cancelBookingRequestSchema, request.body ?? {});
+    response.json(await bookings.cancel(context(request), parse(idSchema, request.params.bookingId), key, expectedRevision));
+  });
+
+  router.get('/practice/sessions/:sessionId/queue', async (request, response) => {
+    response.json(await queue.staffSnapshot(context(request), parse(idSchema, request.params.sessionId)));
+  });
+  router.get('/sessions/:sessionId/queue', async (request, response) => {
+    response.json(await queue.patientSnapshot(context(request), parse(idSchema, request.params.sessionId)));
+  });
+  router.post('/practice/sessions/:sessionId/queue/commands', async (request, response) => {
+    response.json(await queue.execute(
+      context(request), parse(idSchema, request.params.sessionId), parse(queueCommandSchema, request.body),
+      parse(idempotencyKeySchema, request.get('Idempotency-Key'))
+    ));
+  });
+  router.post('/practice/sessions/:sessionId/queue/special-bookings', async (request, response) => {
+    response.status(201).json(await bookings.createSpecial(
+      context(request), parse(idSchema, request.params.sessionId), parse(specialBookingSchema, request.body),
+      parse(idempotencyKeySchema, request.get('Idempotency-Key'))
+    ));
   });
 
   return router;

@@ -7,7 +7,7 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 | Repository foundation | Implemented and verified against an authenticated Scoop replica set |
 | Accounts and access | Backend implemented with local replica-set verification |
 | Sessions and bookings | Backend implemented with local replica-set verification |
-| Queue engine | Not started |
+| Queue engine | Backend implemented with local replica-set verification |
 | Demonstration UI and live updates | Not started |
 | Hardening and operating documentation | Not started |
 
@@ -92,8 +92,24 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 - The integration harness seeds running, missed, and completed states where needed. The queue engine segment will add the public staff session lifecycle and queue transition commands, other insertion rules, and patient-facing ETA.
 - Docker Compose and remote CI verification remain pending. A real SMS provider and administrator MFA are still prerequisites for production startup.
 
+## Queue engine
+
+- Added staff commands for session start and end, call-next, finish, miss, restore, move, and consultation duration changes. Special bookings use a separate staff route with optional priority reason and the existing overflow confirmation rules.
+- Queue writes reuse the practice and assistant transaction guards and check the session revision. Commands, audit metadata, and their idempotency results commit together. The cancellation endpoint accepts an optional revision and preserves the previous request format.
+- Added insertion and movement rules for special and returning slots. Serial numbers remain fixed, waiting positions describe serving order, and order changes preserve the other waiting slots' relative positions.
+- Session closure marks waiting and missed slots unserved with the `session_ended` cause. Practice deactivation uses `practice_disabled`, and a running session prevents deactivation.
+- Staff and patient queue snapshots read a single database snapshot. Staff see scoped patient details; patients see their own booking and estimate and anonymous surrounding slots while the queue is viewable. Estimates use current server time and show delayed consultations.
+- The explicit migration extends the audit and idempotency validators while accepting existing bookings and audit events.
+
+### Verification actually performed
+
+- `pnpm check` passed lint, type checking, unit tests, and builds on the pinned toolchain with Turbo caching bypassed.
+- `pnpm --filter @practice/backend test:integration` passed on the authenticated Scoop replica set. The suite covers published session lifecycle commands, mixed queue ordering, stale revisions, idempotent replays, concurrent call-next, the real start/deactivate race, patient DTO redaction, delayed and revised estimates, assistant revocation, and session closure with preserved booking outcomes.
+- `pnpm db:check` passed. `db:migrate:local` upgraded the existing development database, and a subsequent standard `db:migrate` passed with the app account.
+- The queue is available through REST snapshots and commands. Browser role screens and SSE transport belong to the next segment. Docker Compose and remote CI remain pending.
+
 ## Start here next sitting
 
-1. Read PLAN.md and this handoff. Select the pinned Node and pnpm versions, start the local replica set, build contracts, apply the documented migration, and run the combined replica-set integration suite.
-2. Begin **Queue engine** with start, end, call-next, finish, miss, restore, move, and staff special bookings. Reuse the practice, assignment, and session revision guards. Exercise the actual start/deactivate race through the new start command.
-3. Add transactionally consistent patient and staff snapshots and derive ETA from the active consultation and ordered waiting slots. Keep the UI and live subscription transport in the following segment.
+1. Read PLAN.md and this handoff. Use the pinned toolchain, apply the documented migration, and run the combined replica-set integration suite.
+2. Begin **Demonstration UI and live updates** with thin role screens that call the existing APIs. Use the queue snapshot routes for initial state and refresh after commands.
+3. Add authenticated SSE refresh signals, access rechecks, reconnect and polling fallback, plus a walkthrough from patient booking through session closure. Keep the queue calculations and authorization in the backend.

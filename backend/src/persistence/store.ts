@@ -1,13 +1,17 @@
 import { MongoServerError, type ClientSession, type Db, type Document, type Filter, type IndexDescription, type MongoClient, type ObjectId } from 'mongodb';
 import type { z } from 'zod';
-import { identityAuditV1, identityDocuments } from '../identity/documents.js';
-import { schedulingDocuments } from '../scheduling/documents.js';
+import { identityAuditV1, identityAuditV2, identityDocuments } from '../identity/documents.js';
+import { bookingIdempotencyV1, schedulingDocuments } from '../scheduling/documents.js';
 import { collectionValidator } from './bson.js';
 
 export const documents = { ...identityDocuments, ...schedulingDocuments };
 export const collectionNames = Object.keys(documents) as Array<keyof typeof documents>;
 type CollectionName = keyof typeof documents;
 type StoredDocument<K extends CollectionName> = z.infer<(typeof documents)[K]>;
+const previousSchemas: Partial<Record<CollectionName, z.ZodType[]>> = {
+  auditEvents: [identityAuditV1, identityAuditV2],
+  idempotencyRecords: [bookingIdempotencyV1]
+};
 
 const assigned = { status: { $in: ['invited', 'active'] } };
 const expiry = { key: { expiresAt: 1 }, expireAfterSeconds: 0 };
@@ -41,6 +45,7 @@ const indexes: Record<CollectionName, IndexDescription[]> = {
     { key: { doctorId: 1, patientId: 1, createdAt: -1 } },
     { key: { patientId: 1, createdAt: -1 } },
     { key: { patientId: 1, _id: -1 } },
+    { key: { sessionId: 1, patientId: 1, serialNumber: -1 } },
     { key: { sessionId: 1, _id: -1 } }
   ],
   idempotencyRecords: [{ key: { actorAccountId: 1, operation: 1, key: 1 }, unique: true }, expiry]
@@ -83,8 +88,12 @@ export class PracticeStore {
         await this.db.createCollection(collection.collectionName, { validator });
       } catch (error) {
         if (!(error instanceof MongoServerError) || error.code !== 48) throw error;
-        if (name === 'auditEvents' && this.matchesValidator(await this.options(name), collectionValidator(identityAuditV1))) {
-          await this.db.command({ collMod: collection.collectionName, validator, validationLevel: 'strict', validationAction: 'error' });
+        const older = previousSchemas[name];
+        if (older) {
+          const options = await this.options(name);
+          if (older.some((schema) => this.matchesValidator(options, collectionValidator(schema)))) {
+            await this.db.command({ collMod: collection.collectionName, validator, validationLevel: 'strict', validationAction: 'error' });
+          }
         }
       }
       await this.checkValidator(name);

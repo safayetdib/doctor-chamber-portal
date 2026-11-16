@@ -158,12 +158,11 @@ export class IdentityContext {
   async audit(
     context: Pick<RequestContext, 'requestId'>, actorAccountId: ObjectId, entity: Audit['entity'],
     entityId: ObjectId, action: Audit['action'], transaction: ClientSession, doctorId?: ObjectId,
-    caseReference?: string, affected?: Audit['affected']
+    metadata?: Pick<Audit, 'caseReference' | 'affected' | 'queueChange'>
   ) {
     await this.store.insert('auditEvents', {
       _id: new ObjectId(), at: this.now(), actorAccountId, entity, entityId, action,
-      requestId: context.requestId, ...(doctorId && { doctorId }), ...(caseReference && { caseReference }),
-      ...(affected && { affected })
+      requestId: context.requestId, ...(doctorId && { doctorId }), ...metadata
     }, transaction);
   }
 

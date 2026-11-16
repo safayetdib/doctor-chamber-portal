@@ -321,7 +321,7 @@ export class AuthService {
         authVersion: target.credential.authVersion, phoneRevision: target.credential.phoneRevision, caseReference: input.caseReference
       }, transaction);
       await this.identity.audit(context, actor.account._id, 'account', target.account._id,
-        'operator_recovery_issued', transaction, target.practice?._id, input.caseReference);
+        'operator_recovery_issued', transaction, target.practice?._id, { caseReference: input.caseReference });
       return { recoveryToken: link.token, expiresAt: link.expiresAt };
     });
   }
@@ -339,7 +339,7 @@ export class AuthService {
       await this.consumeLink(challenge, transaction);
       await this.replacePassword(target.credential, passwordHash, transaction);
       await this.identity.audit(context, accountId, 'account', accountId,
-        'operator_recovery_completed', transaction, target.practice?._id, challenge.caseReference);
+        'operator_recovery_completed', transaction, target.practice?._id, { caseReference: challenge.caseReference });
     });
   }
 

@@ -27,6 +27,15 @@ export const identityAuditV1 = z.strictObject({
   requestId: text,
   caseReference: text.optional()
 });
+const schedulingAuditActions = [
+  ...identityAuditActions, 'chamber_configured', 'reference_schedule_configured', 'session_drafted',
+  'session_edited', 'session_published', 'session_booking_changed', 'booking_created', 'booking_cancelled'
+] as const;
+export const identityAuditV2 = identityAuditV1.extend({
+  entity: z.enum([...identityAuditEntities, 'chamber', 'reference_schedule', 'session', 'booking']),
+  action: z.enum(schedulingAuditActions),
+  affected: z.strictObject({ sessions: count, bookings: count }).optional()
+});
 
 export const identityDocuments = {
   accounts: z.strictObject({
@@ -95,13 +104,14 @@ export const identityDocuments = {
     acceptedAt: date.optional(),
     revokedAt: date.optional()
   }),
-  auditEvents: identityAuditV1.extend({
-    entity: z.enum([...identityAuditEntities, 'chamber', 'reference_schedule', 'session', 'booking']),
+  auditEvents: identityAuditV2.extend({
     action: z.enum([
-      ...identityAuditActions, 'chamber_configured', 'reference_schedule_configured', 'session_drafted',
-      'session_edited', 'session_published', 'session_booking_changed', 'booking_created', 'booking_cancelled'
+      ...schedulingAuditActions, 'session_started', 'session_ended', 'booking_called', 'booking_finished',
+      'booking_missed', 'booking_restored', 'booking_moved', 'special_booking_created', 'session_duration_changed'
     ]),
-    affected: z.strictObject({ sessions: count, bookings: count }).optional()
+    queueChange: z.strictObject({
+      revision: count, beforeBookingId: objectId.nullable().optional(), consultationMinutes: count.optional()
+    }).optional()
   }),
   rateLimitBuckets: z.strictObject({ _id: digest, count, expiresAt: date })
 };

@@ -21,3 +21,4 @@ export type ApiError = z.infer<typeof apiErrorSchema>;
 
 export * from './identity.js';
 export * from './scheduling.js';
+export * from './queue.js';

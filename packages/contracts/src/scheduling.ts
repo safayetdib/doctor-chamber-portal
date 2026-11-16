@@ -102,6 +102,7 @@ export const bookingConfirmationDetailsSchema = z.strictObject({
   projectedFinishAt: z.iso.datetime()
 });
 export const idempotencyKeySchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/);
+export const cancelBookingRequestSchema = z.strictObject({ expectedRevision: revisionSchema.optional() });
 export const bookingSummarySchema = z.strictObject({
   bookingId: idSchema,
   sessionId: idSchema,

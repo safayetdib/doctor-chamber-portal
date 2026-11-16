@@ -11,6 +11,7 @@ import { DevelopmentSms, randomSecret } from './identity/security.js';
 import { PracticeStore } from './persistence/store.js';
 import { BookingService } from './scheduling/bookings.js';
 import { SessionService } from './scheduling/sessions.js';
+import { QueueService } from './queue/service.js';
 
 async function main() {
   const config = parseEnvironment(process.env);
@@ -28,7 +29,7 @@ async function main() {
   const server = createServer(createApp({
     logger,
     apiRouter: createApiRouter(
-      auth, new AccessService(identity), new SessionService(identity), new BookingService(identity),
+      auth, new AccessService(identity), new SessionService(identity), new BookingService(identity), new QueueService(identity),
       config.PUBLIC_APP_ORIGIN, config.PUBLIC_APP_ORIGIN.startsWith('https:')
     ),
     checkReady: async () => {

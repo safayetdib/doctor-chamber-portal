@@ -4,7 +4,8 @@ import request from 'supertest';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
   apiErrorSchema, availableSessionPageSchema, bookingPageSchema, bookingSummarySchema, doctorCreatedSchema,
-  patientRegistrationSchema, staffBookingPageSchema, staffSessionSchema
+  patientQueueSnapshotSchema, patientRegistrationSchema, queueCommandResultSchema,
+  staffBookingPageSchema, staffQueueSnapshotSchema, staffSessionSchema
 } from '@practice/contracts';
 import { createApp } from '../src/app.js';
 import { parseEnvironment } from '../src/config.js';
@@ -18,6 +19,7 @@ import { createLogger } from '../src/logger.js';
 import { collectionNames, PracticeStore } from '../src/persistence/store.js';
 import { BookingService } from '../src/scheduling/bookings.js';
 import { SessionService } from '../src/scheduling/sessions.js';
+import { QueueService } from '../src/queue/service.js';
 
 const origin = 'http://practice.test';
 const password = 'Fictional scheduling test password!';
@@ -35,7 +37,7 @@ const auth = new AuthService(identity, sms, randomSecret(), false);
 const http = request(createApp({
   logger: createLogger('silent'),
   checkReady: database.checkReady,
-  apiRouter: createApiRouter(auth, access, new SessionService(identity), new BookingService(identity), origin, false)
+  apiRouter: createApiRouter(auth, access, new SessionService(identity), new BookingService(identity), new QueueService(identity), origin, false)
 }));
 const base = '/api/v1';
 let admin: string;
@@ -348,4 +350,194 @@ it('checks the running-session guard, serializes disable with booking, and prese
   expect(history.body.bookings).toMatchObject([
     { status: 'unserved', unservedCause: 'practice_disabled' }, { status: 'done' }
   ]);
+});
+
+it('runs the queue with revisions, manual ordering, estimates, and redacted patient snapshots', async () => {
+  const staff = await doctor('Queue Doctor');
+  const outside = await doctor('Unassigned Doctor');
+  const first = await patient('Queue Patient A', '+8801700000011');
+  const second = await patient('Queue Patient B', '+8801700000012');
+  const stranger = await patient('Unbooked Patient', '+8801700000013');
+  const invitation = await send('post', '/practice/assistant', staff.cookie, {
+    name: 'Queue Assistant', contactPhone: phone
+  }).expect(201);
+  const assistant = cookie(await send('post', '/auth/setup', '', {
+    token: invitation.body.invitation.setupToken, password
+  }).expect(200));
+  const { sessionId } = await publish(staff.cookie, { capacity: 6 });
+  const staffRoute = '/practice/sessions/' + sessionId + '/queue';
+  const patientRoute = '/sessions/' + sessionId + '/queue';
+  const staffSnapshot = async () => staffQueueSnapshotSchema.parse((await get(staffRoute, staff.cookie).expect(200)).body);
+  const patientSnapshot = async (session: string) =>
+    patientQueueSnapshotSchema.parse((await get(patientRoute, session).expect(200)).body);
+  const createSlot = async (name: string) => patientRegistrationSchema.parse((await send('post', '/patients', staff.cookie, {
+    name, contactPhone: phone
+  }).expect(201)).body).patient.loginId;
+
+  const a = bookingSummarySchema.parse((await book(sessionId, first.cookie, 'queue-book-a').expect(201)).body);
+  const b = bookingSummarySchema.parse((await book(sessionId, staff.cookie, 'queue-book-b', {
+    patientLoginId: second.loginId
+  }).expect(201)).body);
+  const slotS = await createSlot('Private Special Patient Name');
+  const slotT = await createSlot('Second Special Patient');
+  const createSpecial = async (patientLoginId: string, key: string, priorityReason?: string) => {
+    const { queueRevision } = (await staffSnapshot()).session;
+    return bookingSummarySchema.parse((await send('post', staffRoute + '/special-bookings', assistant, {
+      patientLoginId, expectedRevision: queueRevision, priorityReason
+    }, key).expect(201)).body);
+  };
+  const s = await createSpecial(slotS, 'queue-special-s', 'Private priority reason');
+  const t = await createSpecial(slotT, 'queue-special-t');
+  const rawCommand = (payload: object, key: string, actor = staff.cookie) =>
+    send('post', staffRoute + '/commands', actor, payload, key);
+  let commandNumber = 0;
+  const command = async (payload: object, actor = staff.cookie) => {
+    const { queueRevision } = (await staffSnapshot()).session;
+    return queueCommandResultSchema.parse((await rawCommand(
+      { ...payload, expectedRevision: queueRevision }, 'queue-command-' + ++commandNumber, actor
+    ).expect(200)).body);
+  };
+  const waitingSerials = async () => (await staffSnapshot()).waiting.map((booking) => booking.serialNumber);
+  expect(await waitingSerials()).toEqual([s.serialNumber, t.serialNumber, a.serialNumber, b.serialNumber]);
+  await get(staffRoute, outside.cookie).expect(404);
+  await get(patientRoute, stranger.cookie).expect(404);
+  await get(patientRoute).expect(401);
+  await rawCommand({ action: 'start', expectedRevision: (await staffSnapshot()).session.queueRevision }, 'patient-start-key', first.cookie).expect(403);
+
+  await command({ action: 'move', bookingId: s.bookingId, beforeBookingId: null });
+  expect(await waitingSerials()).toEqual([t.serialNumber, a.serialNumber, b.serialNumber, s.serialNumber]);
+  await command({ action: 'miss', bookingId: s.bookingId });
+  await command({ action: 'restore', bookingId: s.bookingId }, assistant);
+  await command({ action: 'miss', bookingId: a.bookingId });
+  await command({ action: 'miss', bookingId: b.bookingId });
+  const missed = await patientSnapshot(first.cookie);
+  expect(missed.ownBooking).toMatchObject({ status: 'missed', estimate: null });
+  expect(missed.missed.map((booking) => booking.serialNumber)).toEqual([a.serialNumber, b.serialNumber]);
+  await command({ action: 'restore', bookingId: b.bookingId });
+  await command({ action: 'restore', bookingId: a.bookingId });
+  expect(await waitingSerials()).toEqual([t.serialNumber, s.serialNumber, b.serialNumber, a.serialNumber]);
+
+  const early = await patientSnapshot(first.cookie);
+  expect(early.ownBooking.estimate).toEqual({ estimatedStartAt: day + 'T04:30:00.000Z', waitSeconds: 5400 });
+  expect(early.waiting[0]).toEqual({ serialNumber: t.serialNumber, status: 'waiting', special: true });
+  expect(JSON.stringify(early)).not.toMatch(/patientId|patientSnapshot|priorityReason|Private Special Patient Name|Private priority reason/);
+  const privateSnapshot = await staffSnapshot();
+  expect(privateSnapshot.waiting[1]).toMatchObject({ queueClass: 'special', priorityReason: 'Private priority reason' });
+  const move = { action: 'move', bookingId: a.bookingId, beforeBookingId: t.bookingId };
+  await command(move);
+  const c = bookingSummarySchema.parse((await book(sessionId, staff.cookie, 'queue-book-c', {
+    patientLoginId: await createSlot('Regular Patient C')
+  }).expect(201)).body);
+  await rawCommand({ ...move, expectedRevision: early.queueRevision }, 'queue-stale-move').expect(409);
+  await send('delete', '/bookings/' + c.bookingId, assistant, { expectedRevision: early.queueRevision }, 'queue-stale-cancel').expect(409);
+  expect(await waitingSerials()).toEqual([a.serialNumber, t.serialNumber, s.serialNumber, b.serialNumber, c.serialNumber]);
+
+  const scheduled = await staffSnapshot();
+  await rawCommand({ action: 'call-next', expectedRevision: scheduled.session.queueRevision }, 'queue-before-start').expect(409);
+  const started = await command({ action: 'start' }, assistant);
+  const later = await publish(staff.cookie, { startTime: '11:00', endTime: '12:00' });
+  const parallelStart = await send('post', '/practice/sessions/' + later.sessionId + '/queue/commands', staff.cookie, {
+    action: 'start', expectedRevision: later.queueRevision
+  }, 'queue-parallel-start').expect(409);
+  expect(parallelStart.body.error.code).toBe('PRACTICE_SESSION_RUNNING');
+
+  const call = { action: 'call-next', expectedRevision: started.queueRevision };
+  const callers = [staff.cookie, assistant];
+  const keys = ['queue-call-staff', 'queue-call-assistant'];
+  const calls = await Promise.all(callers.map((actor, index) => rawCommand(call, keys[index]!, actor)));
+  expect(calls.map((result) => result.status).sort()).toEqual([200, 409]);
+  const winner = calls.findIndex((result) => result.status === 200);
+  const called = queueCommandResultSchema.parse(calls[winner]!.body);
+  expect(called.bookingId).toBe(a.bookingId);
+  expect(calls[1 - winner]!.body.error.code).toBe('STALE_QUEUE');
+  expect((await rawCommand(call, keys[winner]!, callers[winner]).expect(200)).body).toEqual(called);
+  expect(await store.collection('auditEvents').countDocuments({
+    doctorId: new ObjectId(staff.id), action: 'booking_called'
+  })).toBe(1);
+  const reused = await rawCommand({ action: 'end', expectedRevision: called.queueRevision }, keys[winner]!, callers[winner]).expect(409);
+  expect(reused.body.error.code).toBe('IDEMPOTENCY_CONFLICT');
+
+  try {
+    now = new Date(day + 'T03:04:00Z');
+    const remaining = await patientSnapshot(second.cookie);
+    expect(remaining.current).toEqual({ serialNumber: a.serialNumber, status: 'in_progress', special: false, delayed: false });
+    expect(remaining.ownBooking.estimate).toEqual({ estimatedStartAt: day + 'T03:30:00.000Z', waitSeconds: 1560 });
+    now = new Date(day + 'T03:12:00Z');
+    expect((await patientSnapshot(second.cookie)).current?.delayed).toBe(true);
+    const activeStart = (await staffSnapshot()).current?.startedAt;
+    await command({ action: 'set-duration', consultationMinutes: 20 });
+    const adjusted = await staffSnapshot();
+    expect(adjusted.current).toMatchObject({ startedAt: activeStart, delayed: false });
+    expect(adjusted.waiting[0]?.estimate).toEqual({ estimatedStartAt: day + 'T03:20:00.000Z', waitSeconds: 480 });
+
+    now = new Date(day + 'T05:01:00Z');
+    const late = await book(sessionId, stranger.cookie, 'queue-late-public').expect(409);
+    expect(late.body.error.code).toBe('BOOKING_CLOSED');
+    await rawCommand({ action: 'end', expectedRevision: adjusted.session.queueRevision }, 'queue-end-with-current').expect(409);
+    await command({ action: 'finish', bookingId: a.bookingId });
+    expect((await command({ action: 'call-next' })).bookingId).toBe(t.bookingId);
+    await command({ action: 'miss', bookingId: t.bookingId });
+    expect((await staffSnapshot()).current).toBeNull();
+
+    const revision = (await staffSnapshot()).session.queueRevision;
+    const [end, snapshot] = await Promise.all([
+      rawCommand({ action: 'end', expectedRevision: revision }, 'queue-end-final').expect(200),
+      patientSnapshot(second.cookie)
+    ]);
+    expect(end.body.queueRevision).toBe(revision + 1);
+    if (snapshot.sessionStatus === 'running') {
+      expect(snapshot.ownBooking.status).toBe('waiting');
+      expect(snapshot.missed.map((booking) => booking.serialNumber)).toEqual([t.serialNumber]);
+    } else {
+      expect(snapshot.ownBooking.status).toBe('unserved');
+      expect(snapshot.waiting).toEqual([]);
+      expect(snapshot.missed).toEqual([]);
+    }
+    const closed = await patientSnapshot(second.cookie);
+    expect(closed).toMatchObject({
+      sessionStatus: 'ended', current: null, waiting: [], missed: [],
+      ownBooking: { status: 'unserved', unservedCause: 'session_ended', estimate: null }
+    });
+    expect((await patientSnapshot(first.cookie)).ownBooking.status).toBe('done');
+    const history = staffBookingPageSchema.parse((await get('/practice/sessions/' + sessionId + '/bookings', staff.cookie).expect(200)).body);
+    expect(history.bookings.find((entry) => entry.bookingId === t.bookingId)).toMatchObject({
+      status: 'unserved', unservedCause: 'session_ended', queuePosition: null
+    });
+    expect((await staffSnapshot()).session.capacityUsed).toBe(5);
+    const events = await store.collection('auditEvents').find({ doctorId: new ObjectId(staff.id) }).toArray();
+    expect(events.filter((event) => event.action === 'booking_called')).toHaveLength(2);
+    expect(events.some((event) => event.action === 'booking_restored' && event.queueChange?.revision !== undefined)).toBe(true);
+    expect(JSON.stringify(events)).not.toContain('Private priority reason');
+    await send('delete', '/practice/assistant/' + invitation.body.assignment.assignmentId, staff.cookie).expect(204);
+    await get(staffRoute, assistant).expect(401);
+    await rawCommand(call, keys[1]!, assistant).expect(401);
+  } finally {
+    now = new Date(firstTime);
+  }
+});
+
+it('serializes a real session start against disabling the practice', async () => {
+  const staff = await doctor('Queue Race Doctor');
+  const { sessionId, queueRevision } = await publish(staff.cookie);
+  const queueRoute = '/practice/sessions/' + sessionId + '/queue';
+  const disableRoute = '/admin/practices/' + staff.id + '/status';
+  const [start, disable] = await Promise.all([
+    send('post', queueRoute + '/commands', staff.cookie, { action: 'start', expectedRevision: queueRevision }, 'queue-disable-race'),
+    send('patch', disableRoute, admin, { status: 'disabled' })
+  ]);
+  const state = staffQueueSnapshotSchema.parse((await get(queueRoute, staff.cookie).expect(200)).body);
+  if (start.status === 200) {
+    expect(disable.status).toBe(409);
+    expect(disable.body.error.code).toBe('PRACTICE_SESSION_RUNNING');
+    expect(state.session.status).toBe('running');
+    await send('post', queueRoute + '/commands', staff.cookie, {
+      action: 'end', expectedRevision: state.session.queueRevision
+    }, 'queue-race-end').expect(200);
+    await send('patch', disableRoute, admin, { status: 'disabled' }).expect(200);
+  } else {
+    expect(disable.status).toBe(200);
+    expect(start.status).toBe(403);
+    expect(start.body.error.code).toBe('PRACTICE_DISABLED');
+    expect(state.session.status).toBe('cancelled');
+  }
 });

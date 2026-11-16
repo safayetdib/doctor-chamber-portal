@@ -2,14 +2,18 @@ import { ObjectId, type ClientSession } from 'mongodb';
 import type { z } from 'zod';
 import {
   bookingConfirmationDetailsSchema, bookingPageSchema, bookingSummarySchema, staffBookingPageSchema, staffBookingSchema,
-  type bookingWarningSchema, type createBookingSchema
+  type bookingWarningSchema, type createBookingSchema, type specialBookingSchema
 } from '@practice/contracts';
 import type { Actor, IdentityContext, RequestContext } from '../identity/context.js';
-import { forbidden, hashToken, IdentityError } from '../identity/security.js';
+import { forbidden, IdentityError } from '../identity/security.js';
+import { executeIdempotent } from '../persistence/idempotency.js';
+import { estimateQueue } from '../queue/estimates.js';
+import { bookingScope, insertionPosition, shiftWaiting, waitingPosition } from '../queue/order.js';
 import { schedulingDocuments, type Booking, type ConsultationSession } from './documents.js';
 import { invalidTransition, staleRevision, unfinishedStatuses } from './sessions.js';
 
 type BookingRequest = z.infer<typeof createBookingSchema>;
+type SpecialBookingRequest = z.infer<typeof specialBookingSchema>;
 type BookingSummary = z.infer<typeof bookingSummarySchema>;
 type Warning = z.infer<typeof bookingWarningSchema>;
 
@@ -17,7 +21,7 @@ const pageSize = 50;
 const activeStatuses = { $in: ['waiting', 'in_progress', 'missed', 'done'] as const };
 const notFound = () => new IdentityError(404, 'NOT_FOUND', 'The session, booking or patient was not found.');
 
-function bookingDto(booking: Booking): BookingSummary {
+export function bookingDto(booking: Booking): BookingSummary {
   return bookingSummarySchema.parse({
     bookingId: booking._id.toHexString(), sessionId: booking.sessionId.toHexString(), doctorId: booking.doctorId.toHexString(),
     serialNumber: booking.serialNumber, status: booking.status, createdAt: booking.createdAt.toISOString(),
@@ -26,7 +30,7 @@ function bookingDto(booking: Booking): BookingSummary {
   });
 }
 
-function staffBookingDto(booking: Booking) {
+export function staffBookingDto(booking: Booking) {
   return staffBookingSchema.parse({
     ...bookingDto(booking), patientId: booking.patientId.toHexString(), patientSnapshot: booking.patientSnapshot,
     queueClass: booking.queueClass, queuePosition: booking.queuePosition, source: booking.source
@@ -37,32 +41,6 @@ export class BookingService {
   constructor(private identity: IdentityContext) {}
 
   private get store() { return this.identity.store; }
-
-  private async execute(
-    context: RequestContext, key: string, operation: string, input: object,
-    command: (actor: Actor, transaction: ClientSession) => Promise<BookingSummary>
-  ) {
-    const payloadHash = hashToken(JSON.stringify(input));
-    return this.store.transaction(async (transaction) => {
-      const actor = await this.identity.actor(context.token, transaction, true);
-      const filter = { actorAccountId: actor.account._id, operation, key };
-      const existing = await this.store.one('idempotencyRecords', filter, transaction);
-      if (existing && existing.expiresAt > this.identity.now()) {
-        if (existing.payloadHash !== payloadHash) {
-          throw new IdentityError(409, 'IDEMPOTENCY_CONFLICT', 'This key already belongs to a different request.');
-        }
-        return existing.result;
-      }
-      if (existing) await this.store.collection('idempotencyRecords').deleteOne({ _id: existing._id }, { session: transaction });
-      const result = await command(actor, transaction);
-      const timestamps = this.identity.recordTime();
-      await this.store.insert('idempotencyRecords', {
-        ...timestamps, ...filter, payloadHash, result,
-        expiresAt: new Date(timestamps.createdAt.getTime() + 86_400_000)
-      }, transaction);
-      return result;
-    });
-  }
 
   private async lockActivePractice(doctorId: ObjectId, transaction: ClientSession) {
     const practice = await this.store.one('doctorProfiles', { _id: doctorId }, transaction);
@@ -89,14 +67,10 @@ export class BookingService {
     session: ConsultationSession, confirmation: BookingRequest['confirmation'], now: Date, transaction: ClientSession
   ) {
     if (confirmation && confirmation.expectedRevision !== session.queueRevision) throw staleRevision();
-    const duration = session.consultationMinutes * 60_000;
-    const waiting = await this.store.collection('bookings').countDocuments({ sessionId: session._id, status: 'waiting' }, { session: transaction });
-    const inProgress = await this.store.one('bookings', { sessionId: session._id, status: 'in_progress' }, transaction);
-    const startedAt = inProgress?.startedAt?.getTime();
-    if (inProgress && startedAt === undefined) throw new Error('The serving slot has no start timestamp.');
-    const remaining = startedAt === undefined ? 0 : Math.max(0, duration - Math.max(0, now.getTime() - startedAt));
-    const base = session.status === 'running' ? now.getTime() : Math.max(now.getTime(), session.startsAt.getTime());
-    const finish = new Date(base + remaining + (waiting + 1) * duration);
+    const scope = bookingScope(session);
+    const waiting = await this.store.collection('bookings').countDocuments({ ...scope, status: 'waiting' }, { session: transaction });
+    const inProgress = await this.store.one('bookings', { ...scope, status: 'in_progress' }, transaction);
+    const finish = estimateQueue(session, inProgress, now).projectedFinish(waiting + 1);
     const warnings: Warning[] = [];
     if (session.capacityUsed >= session.capacity) warnings.push('capacity');
     if (finish > session.endsAt) warnings.push('overtime');
@@ -119,13 +93,34 @@ export class BookingService {
     if (principal.account.role === 'patient') {
       await this.identity.rateLimit(context, 'patient-booking', principal.account._id.toHexString());
     }
-    return this.execute(context, key, `book:${sessionId}`, request, async (actor, transaction) => {
+    return this.reserve(context, sessionId, request, key);
+  }
+
+  async createSpecial(context: RequestContext, sessionId: string, input: SpecialBookingRequest, key: string) {
+    const request = {
+      patientLoginId: input.patientLoginId,
+      confirmation: input.acknowledged && { expectedRevision: input.expectedRevision, acknowledged: [...input.acknowledged].sort() }
+    };
+    return this.reserve(context, sessionId, request, key, {
+      expectedRevision: input.expectedRevision, priorityReason: input.priorityReason
+    });
+  }
+
+  private async reserve(
+    context: RequestContext, sessionId: string, request: BookingRequest, key: string,
+    special?: Pick<SpecialBookingRequest, 'expectedRevision' | 'priorityReason'>
+  ) {
+    const operation = special ? `special:${sessionId}` : `book:${sessionId}`;
+    const payload = special ? { ...request, ...special } : request;
+    return executeIdempotent(this.identity, context, key, operation, payload, bookingSummarySchema, async (actor, transaction) => {
       const self = actor.account.role === 'patient';
+      if (special && self) throw forbidden();
       const practice = self ? null : await this.identity.staff(actor, transaction);
       const session = await this.store.one('sessions', {
         _id: new ObjectId(sessionId), status: unfinishedStatuses, ...(practice && { doctorId: practice._id })
       }, transaction);
       if (!session) throw notFound();
+      if (special && special.expectedRevision !== session.queueRevision) throw staleRevision();
       if (self) await this.lockActivePractice(session.doctorId, transaction);
       const chamber = await this.store.one('chambers', { _id: session.chamberId, doctorId: session.doctorId }, transaction);
       if (!chamber) throw new Error('The session does not reference its practice chamber.');
@@ -143,28 +138,29 @@ export class BookingService {
       }
       if (!self) await this.checkStaffConfirmation(session, request.confirmation, now, transaction);
 
-      const last = await this.store.collection('bookings').findOne({
-        sessionId: session._id, status: 'waiting'
-      }, { sort: { queuePosition: -1 }, session: transaction });
-      const position = last ? schedulingDocuments.bookings.parse(last).queuePosition : 0;
-      if (position === null) throw new Error('A waiting slot has no queue position.');
+      const queueClass = special ? 'special' : 'regular';
+      const position = await insertionPosition(this.store, session, queueClass, transaction);
+      if (special) await shiftWaiting(this.store, session, { $gte: position }, 1, now, transaction);
       const booking: Booking = {
         ...this.identity.recordTime(), doctorId: session.doctorId, chamberId: chamber._id, sessionId: session._id,
-        patientId: patient._id, serialNumber: session.lastSerialNumber + 1, status: 'waiting', queueClass: 'regular',
-        queuePosition: position + 1, source, createdByAccountId: actor.account._id,
+        patientId: patient._id, serialNumber: session.lastSerialNumber + 1, status: 'waiting', queueClass,
+        queuePosition: position, source, createdByAccountId: actor.account._id,
+        ...(special?.priorityReason && { priorityReason: special.priorityReason }),
         patientSnapshot: { name: account.name, contactPhone: account.contactPhone }
       };
       await this.store.collection('sessions').updateOne({ _id: session._id }, {
         $inc: { lastSerialNumber: 1, capacityUsed: 1, queueRevision: 1 }, $set: { updatedAt: now }
       }, { session: transaction });
       await this.store.insert('bookings', booking, transaction);
-      await this.identity.audit(context, actor.account._id, 'booking', booking._id, 'booking_created', transaction, session.doctorId);
+      await this.identity.audit(context, actor.account._id, 'booking', booking._id,
+        special ? 'special_booking_created' : 'booking_created', transaction, session.doctorId,
+        special && { queueChange: { revision: session.queueRevision + 1 } });
       return bookingDto(booking);
     });
   }
 
-  async cancel(context: RequestContext, bookingId: string, key: string) {
-    return this.execute(context, key, `cancel:${bookingId}`, {}, async (actor, transaction) => {
+  async cancel(context: RequestContext, bookingId: string, key: string, expectedRevision?: number) {
+    return executeIdempotent(this.identity, context, key, `cancel:${bookingId}`, { expectedRevision }, bookingSummarySchema, async (actor, transaction) => {
       const self = actor.account.role === 'patient';
       const practice = self ? null : await this.identity.staff(actor, transaction);
       const patient = self ? await this.store.one('patientProfiles', { accountId: actor.account._id }, transaction) : null;
@@ -180,16 +176,14 @@ export class BookingService {
         _id: booking.sessionId, doctorId: booking.doctorId, chamberId: booking.chamberId, status: unfinishedStatuses
       }, transaction);
       if (!session) throw invalidTransition('The consultation session has already closed.');
+      if (expectedRevision !== undefined && expectedRevision !== session.queueRevision) throw staleRevision();
       if (self) await this.lockActivePractice(session.doctorId, transaction);
       if (session.capacityUsed < 1) throw new Error('Booking cancellation would underflow session capacity.');
       const now = this.identity.now();
       const cancelled = { status: 'cancelled' as const, queuePosition: null, cancelledAt: now, updatedAt: now };
       await this.store.collection('bookings').updateOne({ _id: booking._id }, { $set: cancelled }, { session: transaction });
       if (booking.status === 'waiting') {
-        if (booking.queuePosition === null) throw new Error('A waiting slot has no queue position.');
-        await this.store.collection('bookings').updateMany({
-          sessionId: session._id, status: 'waiting', queuePosition: { $gt: booking.queuePosition }
-        }, { $inc: { queuePosition: -1 }, $set: { updatedAt: now } }, { session: transaction });
+        await shiftWaiting(this.store, session, { $gt: waitingPosition(booking) }, -1, now, transaction);
       }
       await this.store.collection('sessions').updateOne({ _id: session._id }, {
         $inc: { capacityUsed: -1, queueRevision: 1 }, $set: { updatedAt: now }

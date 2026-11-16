@@ -15,6 +15,7 @@ import { createLogger } from '../src/logger.js';
 import { createApiRouter } from '../src/identity/routes.js';
 import { BookingService } from '../src/scheduling/bookings.js';
 import { SessionService } from '../src/scheduling/sessions.js';
+import { QueueService } from '../src/queue/service.js';
 
 const origin = 'https://practice.test';
 const password = 'Fictional test password!';
@@ -33,7 +34,7 @@ const auth = new AuthService(identity, sms, randomSecret(), false);
 const api = request(createApp({
   logger: createLogger('silent'),
   checkReady: database.checkReady,
-  apiRouter: createApiRouter(auth, access, new SessionService(identity), new BookingService(identity), origin, true)
+  apiRouter: createApiRouter(auth, access, new SessionService(identity), new BookingService(identity), new QueueService(identity), origin, true)
 }));
 const path = '/api/v1';
 let rootCookie: string;

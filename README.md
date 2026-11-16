@@ -117,7 +117,22 @@ Use an `Idempotency-Key` header for booking creation and cancellation. Patients 
 
 ### Migrating an existing database
 
-The scheduling migration extends the existing audit collection validator. On Scoop, run `db:migrate:local` after building contracts. On another authenticated replica set, supply a scoped migration credential with collection management privileges in `MONGODB_MIGRATION_URI` when running `db:migrate`. The backend continues to use `MONGODB_URI` for app access.
+Migrations extend the existing audit and idempotency collection validators. On Scoop, run `db:migrate:local` after building contracts. On another authenticated replica set, supply a scoped migration credential with collection management privileges in `MONGODB_MIGRATION_URI` when running `db:migrate`. The backend continues to use `MONGODB_URI` for app access.
+
+## Queue engine
+
+| Workflow | Routes under `/api/v1` |
+| --- | --- |
+| Read the staff queue | `GET /practice/sessions/:sessionId/queue` |
+| Read the patient's queue and estimate | `GET /sessions/:sessionId/queue` |
+| Operate the queue | `POST /practice/sessions/:sessionId/queue/commands` |
+| Add a special booking | `POST /practice/sessions/:sessionId/queue/special-bookings` |
+
+Staff commands take an `Idempotency-Key` header and an `expectedRevision` from the staff queue snapshot. Use `action` values `start`, `end`, `call-next`, `finish`, `miss`, `restore`, `move`, or `set-duration`. Booking-specific commands take `bookingId`. A move takes `beforeBookingId`, with `null` for the end of the line. Duration changes take `consultationMinutes`. Refresh the snapshot before resubmitting a stale command. The booking cancellation route also accepts an optional `expectedRevision`.
+
+The special booking route takes the revision, `patientLoginId`, and an optional `priorityReason`. If the API returns capacity or overtime warnings, submit those codes in `acknowledged` with the latest revision. The regular booking route continues to create regular bookings when staff confirm overflow.
+
+Patients with a booking can read their own outcome. During a viewable session, the surrounding queue uses anonymous serials and status badges. Estimates use the consultation start, running duration, and current waiting order at `calculatedAt`.
 
 ## Operational notes
 
