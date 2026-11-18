@@ -148,6 +148,8 @@ Patients with a booking can read their own outcome. During a viewable session, t
 
 Staff and patient queue APIs provide authenticated `/events` endpoints alongside their snapshots. The events signal when to refetch and carry no booking data. The browser polls while disconnected and retries the stream. A separate browser profile per role keeps the sessions independent.
 
+On a phone, the selected active queue appears above booking forms. Staff can start and end a session beside the queue, check a patient's name with **Find patient** before booking, and see the assigned serial after success. A new registration is ready to book immediately. Patients can filter availability by its Dhaka service date. Practice, session and booking history lists provide controls for later pages.
+
 ## Operational notes
 
 The Compose member advertises `mongo:27017` inside the container network. Host applications use `directConnection=true` to reach it through the loopback port. The Scoop replica set advertises `localhost:27017` and requires authentication.

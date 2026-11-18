@@ -5,7 +5,7 @@ import {
   bookingSummarySchema, practiceSchema, queueCommandResultSchema, queueCommandSchema, schedulePrefillSchema,
   staffBookingPageSchema, staffQueueSnapshotSchema, staffSessionPageSchema, staffSessionSchema
 } from '@practice/contracts';
-import { field, localDay, localTime, todayInDhaka, write, type Output } from './api';
+import { field, localDay, localTime, statusLabel, todayInDhaka, write, type Output } from './api';
 import { useAction, useQueueUpdates, useResource } from './hooks';
 import { Badge, Empty, Feedback } from './ui';
 import { PracticeSettings } from './settings';
@@ -81,7 +81,8 @@ function StaffQueue({ sessionId, disabled, onUpdated }: { sessionId: string; dis
   const active = session?.status === 'scheduled' || session?.status === 'running';
   const connection = useQueueUpdates(active && !disabled ? path + '/queue' : null, resource.refresh);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const history = useResource(historyOpen ? path + '/bookings' : null, staffBookingPageSchema);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const history = useResource(historyOpen ? path + '/bookings' + (historyCursor ? '?after=' + historyCursor : '') : null, staffBookingPageSchema);
   const action = useAction();
 
   function refresh() {
@@ -128,7 +129,7 @@ function StaffQueue({ sessionId, disabled, onUpdated }: { sessionId: string; dis
     {resource.error && <button className="secondary" onClick={refresh}>Retry</button>}
   </section>;
 
-  const readOnly = disabled || action.busy;
+  const readOnly = disabled || action.busy || !!resource.error;
   return <div className="workspace-grid queue-grid">
     <div className="column">
       <section className="surface">
@@ -137,13 +138,10 @@ function StaffQueue({ sessionId, disabled, onUpdated }: { sessionId: string; dis
         <p className="quiet">{session.capacityUsed} booked · capacity {session.capacity} · {session.consultationMinutes} min per consultation</p>
         {disabled && <Empty>This practice is disabled. Session history is read-only.</Empty>}
         <Feedback error={resource.error || action.error} notice={action.notice} />
+        {resource.error && <button className="secondary" onClick={refresh}>Retry queue</button>}
         {!disabled && session.status === 'draft' && <button disabled={readOnly} onClick={() => publish()}>Publish session</button>}
         {!disabled && active && <>
           <div className="inline">
-            {session.status === 'scheduled' && <button disabled={readOnly} onClick={() => command({ action: 'start' })}>Start session</button>}
-            {session.status === 'running' && <button className="secondary" disabled={readOnly || !!snapshot.current} onClick={() => {
-              if (window.confirm('End the session? Remaining bookings will be marked unserved.')) command({ action: 'end' });
-            }}>End session</button>}
             <button className="secondary" disabled={readOnly || (!session.bookingOpen && new Date(snapshot.calculatedAt) >= new Date(session.endsAt))}
               onClick={() => publish(!session.bookingOpen)}>{session.bookingOpen ? 'Close public booking' : 'Open public booking'}</button>
           </div>
@@ -158,14 +156,15 @@ function StaffQueue({ sessionId, disabled, onUpdated }: { sessionId: string; dis
       </section>
       {!disabled && (session.status === 'draft' || session.status === 'scheduled') &&
         <SessionForm key={session.sessionId + ':' + session.startsAt + ':' + session.endsAt} defaults={session} onSaved={refresh} />}
-      {!disabled && active && <BookingDesk sessionId={sessionId} revision={session.queueRevision} refresh={refresh} />}
+      {!disabled && active && <BookingDesk sessionId={sessionId} revision={session.queueRevision} disabled={readOnly} refresh={refresh} />}
     </div>
-    <section className="surface queue">
+    <section className={'surface queue' + (active ? ' current-queue' : '')}>
       <div className="inline spread">
         <h2>Queue</h2>
         {connection && <span className="connection-state">{connection === 'live' ? 'Live updates' : 'Polling for updates'}</span>}
         <button className="secondary" onClick={refresh}>Refresh</button>
       </div>
+      <p className="quiet">Updated {localTime(snapshot.calculatedAt)} Dhaka time</p>
       <div className="serving">
         {snapshot.current ? <>
           <div><small>Now serving</small><strong className="serial-number">{snapshot.current.serialNumber}</strong></div>
@@ -177,10 +176,18 @@ function StaffQueue({ sessionId, disabled, onUpdated }: { sessionId: string; dis
             </div>}
           </div>
         </> : <><div><small>Now serving</small><p>No current consultation</p></div>
-          {!disabled && <button disabled={readOnly || session.status !== 'running' || !snapshot.waiting.length}
+          {!disabled && session.status === 'scheduled' && <button disabled={readOnly}
+            onClick={() => command({ action: 'start' })}>Start session</button>}
+          {!disabled && session.status === 'running' && <button disabled={readOnly || !snapshot.waiting.length}
             onClick={() => command({ action: 'call-next' })}>Call next</button>}</>}
       </div>
-      <h3>Waiting order</h3>
+      {!disabled && session.status === 'running' && <div className="inline">
+        <button className="secondary" disabled={readOnly || !!snapshot.current} onClick={() => {
+          if (window.confirm('End the session? Remaining bookings will be marked unserved.')) command({ action: 'end' });
+        }}>End session</button>
+        {snapshot.current && <small>Finish or mark the current consultation missed before ending the session.</small>}
+      </div>}
+      <h3>Waiting order ({snapshot.waiting.length})</h3>
       {snapshot.waiting.length === 0 && <Empty>No patients are waiting.</Empty>}
       {snapshot.waiting.map((entry, index) => <article className="list-row queue-row" key={entry.bookingId}>
         <div><strong>#{entry.serialNumber} · {entry.patientSnapshot.name}</strong> {entry.queueClass !== 'regular' && <Badge value={entry.queueClass} />}
@@ -193,25 +200,31 @@ function StaffQueue({ sessionId, disabled, onUpdated }: { sessionId: string; dis
           <button className="secondary compact" disabled={readOnly || index === snapshot.waiting.length - 1} aria-label={'Move serial ' + entry.serialNumber + ' down'} onClick={() =>
             command({ action: 'move', bookingId: entry.bookingId, beforeBookingId: snapshot.waiting[index + 2]?.bookingId ?? null })}>Down</button>
           <button className="secondary compact" disabled={readOnly} onClick={() => command({ action: 'miss', bookingId: entry.bookingId })}>Mark missed</button>
-          <button className="secondary compact" disabled={readOnly} onClick={() => cancel(entry.bookingId)}>Cancel</button>
+          <button className="secondary compact" disabled={readOnly} aria-label={'Cancel serial ' + entry.serialNumber} onClick={() => cancel(entry.bookingId)}>Cancel</button>
         </div>}
       </article>)}
-      <h3>Missed</h3>
+      <h3>Missed ({snapshot.missed.length})</h3>
       {snapshot.missed.length === 0 && <Empty>No missed bookings.</Empty>}
       {snapshot.missed.map((entry) => <article className="list-row muted-row" key={entry.bookingId}>
         <div><strong>#{entry.serialNumber} · {entry.patientSnapshot.name}</strong> <Badge value="missed" /></div>
         {!disabled && active && <div className="inline">
           <button className="secondary compact" disabled={readOnly} onClick={() => command({ action: 'restore', bookingId: entry.bookingId })}>Restore</button>
-          <button className="secondary compact" disabled={readOnly} onClick={() => cancel(entry.bookingId)}>Cancel</button>
+          <button className="secondary compact" disabled={readOnly} aria-label={'Cancel serial ' + entry.serialNumber} onClick={() => cancel(entry.bookingId)}>Cancel</button>
         </div>}
       </article>)}
       <details className="subsection" onToggle={(event) => setHistoryOpen(event.currentTarget.open)}>
         <summary>Booking history</summary>
         <Feedback error={history.error} />
         {history.loading && <Empty>Loading booking history…</Empty>}
+        {history.data?.bookings.length === 0 && <Empty>No bookings on this page.</Empty>}
         {history.data?.bookings.map((entry) => <article className="list-row" key={entry.bookingId}>
           <strong>#{entry.serialNumber} · {entry.patientSnapshot.name}</strong><Badge value={entry.status} />
         </article>)}
+        <div className="inline">
+          {historyCursor && <button className="secondary" onClick={() => setHistoryCursor(null)}>Newest bookings</button>}
+          {history.data?.nextCursor && <button className="secondary" onClick={() => setHistoryCursor(history.data!.nextCursor)}>Older bookings</button>}
+          {history.error && <button className="secondary" onClick={history.refresh}>Retry history</button>}
+        </div>
       </details>
     </section>
   </div>;
@@ -221,8 +234,12 @@ export function Staff({ doctor }: { doctor: boolean }) {
   const [view, setView] = useState<'sessions' | 'practice'>('sessions');
   const [selected, setSelected] = useState('');
   const [filterDate, setFilterDate] = useState('');
+  const [sessionCursor, setSessionCursor] = useState<string | null>(null);
   const practice = useResource('/practice', practiceSchema);
-  const sessions = useResource(view === 'sessions' ? '/practice/sessions' + (filterDate ? '?date=' + filterDate : '') : null, staffSessionPageSchema);
+  const sessionQuery = new URLSearchParams();
+  if (filterDate) sessionQuery.set('date', filterDate);
+  if (sessionCursor) sessionQuery.set('after', sessionCursor);
+  const sessions = useResource(view === 'sessions' ? '/practice/sessions?' + sessionQuery : null, staffSessionPageSchema);
   const sessionId = sessions.data?.sessions.some((entry) => entry.sessionId === selected)
     ? selected : sessions.data?.sessions[0]?.sessionId ?? '';
   const disabled = practice.data?.status !== 'active';
@@ -240,23 +257,32 @@ export function Staff({ doctor }: { doctor: boolean }) {
     {view === 'sessions' && <>
       <div className="session-tools">
         <section className="surface filters">
-          <label>Filter by date<input type="date" value={filterDate} onChange={(event) => setFilterDate(event.target.value)} /></label>
+          <label>Filter by date<input type="date" value={filterDate} onChange={(event) => { setFilterDate(event.target.value); setSessionCursor(null); }} /></label>
           <label>Session<select value={sessionId} onChange={(event) => setSelected(event.target.value)}>
             {!sessionId && <option value="">No sessions found</option>}
             {sessions.data?.sessions.map((entry) => <option value={entry.sessionId} key={entry.sessionId}>
-              {localDay(entry.startsAt)} · {localTime(entry.startsAt)} · {entry.status}
+              {localDay(entry.startsAt)} · {localTime(entry.startsAt)} · {statusLabel(entry.status)}
             </option>)}
           </select></label>
+          <div className="inline filter-actions">
+            {filterDate && <button className="secondary" onClick={() => { setFilterDate(''); setSessionCursor(null); }}>All dates</button>}
+            {sessionCursor && <button className="secondary" onClick={() => setSessionCursor(null)}>First sessions</button>}
+            {sessions.data?.nextCursor && <button className="secondary" onClick={() => setSessionCursor(sessions.data!.nextCursor)}>More sessions</button>}
+          </div>
         </section>
         {!disabled && <SessionForm onSaved={(entry) => {
           if (filterDate && filterDate !== entry.serviceDate) setFilterDate(entry.serviceDate);
+          setSessionCursor(null);
           setSelected(entry.sessionId);
           sessions.refresh();
         }} />}
       </div>
       <Feedback error={sessions.error} />
+      {sessions.error && <button className="secondary" onClick={sessions.refresh}>Retry sessions</button>}
       {sessions.loading && <Empty>Loading sessions…</Empty>}
-      {!sessions.loading && !sessionId && <Empty>Draft a session to set its date, capacity, and consultation length.</Empty>}
+      {!sessions.loading && !sessionId && <Empty>{filterDate
+        ? 'No sessions on this date. Choose another date or show all dates.'
+        : 'Draft a session to set its date, capacity, and consultation length.'}</Empty>}
       {sessionId && <StaffQueue key={sessionId} sessionId={sessionId} disabled={disabled} onUpdated={sessions.refresh} />}
     </>}
   </>;

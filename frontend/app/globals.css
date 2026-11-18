@@ -58,6 +58,12 @@ summary::marker { color: var(--green); }
 .list-row:first-of-type { margin-top: 12px; }
 .list-row > div { min-width: 0; overflow-wrap: anywhere; }
 .queue-actions { gap: 6px; }
+.filter-actions { grid-column: 1 / -1; }
+.inline:empty { display: none; }
+.message + .workspace-grid { margin-top: 16px; }
+.patient-preview { padding-block: 12px; border-block: 1px solid var(--line); overflow-wrap: anywhere; }
+.patient-preview strong, .patient-preview code { display: block; }
+.patient-preview code { margin-top: 4px; font-size: .85rem; }
 .muted-row { color: var(--muted); background: #f8faf8; padding-inline: 8px; }
 .queue h3 + .list-row { margin-top: 0; }
 .queue-heading { scroll-margin-top: 20px; }
@@ -119,6 +125,7 @@ button.text-button { background: transparent; color: var(--dark); text-decoratio
 
 @media (max-width: 780px) {
   .workspace-grid, .session-tools { grid-template-columns: 1fr; }
+  .current-queue { order: -1; }
 }
 @media (max-width: 620px) {
   main, .header-inner, .site-footer { width: calc(100% - 24px); }

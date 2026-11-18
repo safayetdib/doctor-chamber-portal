@@ -10,17 +10,31 @@ import { Badge, Empty, Feedback } from './ui';
 
 export function Patient() {
   const [practice, setPractice] = useState('');
+  const [practiceCursor, setPracticeCursor] = useState<string | null>(null);
+  const [serviceDate, setServiceDate] = useState('');
+  const [sessionCursor, setSessionCursor] = useState<string | null>(null);
   const [selected, setSelected] = useState('');
   const [historyCursor, setHistoryCursor] = useState<string | null>(null);
-  const directory = useResource('/practices', publicPracticePageSchema);
+  const directory = useResource('/practices' + (practiceCursor ? '?after=' + practiceCursor : ''), publicPracticePageSchema);
   const practiceId = practice || directory.data?.practices[0]?.doctorId || '';
-  const available = useResource(practiceId ? '/practices/' + practiceId + '/sessions' : null, availableSessionPageSchema);
+  const sessionQuery = new URLSearchParams();
+  if (serviceDate) sessionQuery.set('date', serviceDate);
+  if (sessionCursor) sessionQuery.set('after', sessionCursor);
+  const available = useResource(practiceId ? '/practices/' + practiceId + '/sessions?' + sessionQuery : null, availableSessionPageSchema);
   const history = useResource('/bookings' + (historyCursor ? '?after=' + historyCursor : ''), bookingPageSchema);
   const currentSession = selected || history.data?.bookings[0]?.sessionId || '';
   const queuePath = currentSession ? '/sessions/' + currentSession + '/queue' : null;
   const queue = useResource(queuePath, patientQueueSnapshotSchema);
   const snapshot = queue.data;
   const own = snapshot?.ownBooking;
+  const outcome = {
+    waiting: 'Your wait estimate will appear when available.',
+    in_progress: 'Your consultation is in progress.',
+    done: 'Your consultation is complete.',
+    missed: 'You were marked missed. Contact the practice to rejoin the queue.',
+    cancelled: 'This booking was cancelled. You can book another available session.',
+    unserved: 'This booking closed before your consultation.'
+  };
   const viewable = snapshot && ['scheduled', 'running'].includes(snapshot.sessionStatus)
     && own?.status !== 'cancelled' && own?.status !== 'unserved' && own?.unservedCause === undefined;
   const refreshQueue = queue.refresh;
@@ -50,20 +64,37 @@ export function Patient() {
           <h2>Book a session</h2>
           <Feedback error={directory.error || available.error} />
           <div className="fields">
-            <label>Practice<select value={practiceId} onChange={(event) => setPractice(event.target.value)}>
+            <label>Practice<select value={practiceId} disabled={directory.loading} onChange={(event) => {
+              setPractice(event.target.value);
+              setSessionCursor(null);
+            }}>
               {!directory.data?.practices.length && <option value="">No practices available</option>}
               {directory.data?.practices.map((entry) => <option key={entry.doctorId} value={entry.doctorId}>{entry.displayName}</option>)}
             </select></label>
+            <div className="inline">
+              {practiceCursor && <button className="secondary" onClick={() => {
+                setPracticeCursor(null); setPractice(''); setSessionCursor(null);
+              }}>First practices</button>}
+              {directory.data?.nextCursor && <button className="secondary" onClick={() => {
+                setPracticeCursor(directory.data!.nextCursor); setPractice(''); setSessionCursor(null);
+              }}>More practices</button>}
+            </div>
+            <label>Session date in Dhaka<input type="date" value={serviceDate} onChange={(event) => {
+              setServiceDate(event.target.value); setSessionCursor(null);
+            }} /></label>
+            {serviceDate && <button className="secondary" onClick={() => { setServiceDate(''); setSessionCursor(null); }}>All dates</button>}
           </div>
           {(directory.loading || available.loading) && <Empty>Loading sessions…</Empty>}
-          {available.data?.sessions.length === 0 && <Empty>This practice has no sessions open for booking.</Empty>}
+          {available.data?.sessions.length === 0 && <Empty>{serviceDate
+            ? 'No sessions are open for booking on this date. Choose another date or show all dates.'
+            : 'This practice has no sessions open for booking.'}</Empty>}
           {available.data?.sessions.map((entry) => {
             const eligible = ['waiting', 'in_progress', 'missed', 'done'];
             const booked = history.data?.bookings.some((booking) =>
               booking.sessionId === entry.sessionId && eligible.includes(booking.status))
               || (own?.sessionId === entry.sessionId && eligible.includes(own.status));
             return <article className="list-row" key={entry.sessionId}>
-            <div><strong>{localDay(entry.startsAt)}</strong><small>
+            <div><strong>{localDay(entry.startsAt)}</strong> <Badge value={entry.status} /><small>
               {localTime(entry.startsAt)} – {localTime(entry.endsAt)} · {entry.remainingCapacity} available
             </small></div>
             {booked ? <button className="secondary" onClick={() => showQueue(entry.sessionId)}>View booking</button>
@@ -75,6 +106,11 @@ export function Patient() {
             }, 'Booking confirmed.')}>Book session</button>}
           </article>;
           })}
+          <div className="inline">
+            {sessionCursor && <button className="secondary" onClick={() => setSessionCursor(null)}>First sessions</button>}
+            {available.data?.nextCursor && <button className="secondary" onClick={() => setSessionCursor(available.data!.nextCursor)}>More sessions</button>}
+          </div>
+          {(directory.error || available.error) && <button className="secondary" onClick={() => { directory.refresh(); available.refresh(); }}>Retry availability</button>}
         </section>
         <section className="surface">
           <div className="inline spread"><h2>Your bookings</h2><button className="secondary" onClick={refresh}>Refresh</button></div>
@@ -91,10 +127,11 @@ export function Patient() {
           </div>
         </section>
       </div>
-      <section className="surface queue">
+      <section className={'surface queue' + (currentSession ? ' current-queue' : '')}>
         <div className="inline spread">
           <h2 ref={queueHeading} tabIndex={-1} className="queue-heading">Your queue</h2>
           {connection && <span className="connection-state">{connection === 'live' ? 'Live updates' : 'Polling for updates'}</span>}
+          <button className="secondary" onClick={refresh}>Refresh queue</button>
         </div>
         <Feedback error={queue.error} />
         {queue.loading && <Empty>Loading queue…</Empty>}
@@ -104,12 +141,11 @@ export function Patient() {
             <div><small>Your serial</small><strong className="serial-number">{own.serialNumber}</strong></div>
             <div><Badge value={own.status} /> {own.special && <Badge value="special" />}
               <p>{own.estimate ? 'Estimated start ' + localTime(own.estimate.estimatedStartAt) + ' Dhaka time' :
-                own.status === 'in_progress' ? 'Your consultation is in progress.' :
-                  own.unservedCause === 'practice_disabled' ? 'The practice closed this booking.' :
-                    own.unservedCause === 'session_ended' ? 'The session ended before your consultation.' : 'Wait estimate unavailable.'}</p>
+                own.unservedCause === 'practice_disabled' ? 'The practice closed this booking.' :
+                  own.unservedCause === 'session_ended' ? 'The session ended before your consultation.' : outcome[own.status]}</p>
             </div>
           </div>
-          <p className="quiet">Updated {localTime(snapshot.calculatedAt)} Dhaka time</p>
+          <p className="quiet">Updated {localDay(snapshot.calculatedAt)} at {localTime(snapshot.calculatedAt)} Dhaka time</p>
           {viewable && (own.status === 'waiting' || own.status === 'missed') &&
             <button className="secondary" disabled={action.busy} onClick={() => {
               if (!window.confirm('Cancel this booking?')) return;

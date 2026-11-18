@@ -174,5 +174,6 @@ Acceptance scenarios: shared-phone isolation; activation expiry/replay; verifica
 4. Queue engine: transitions, insertion/reorder, ETA, transactions/audit/idempotency.
 5. Demo UI/live updates: thin role screens, functional forms/tables/move buttons, live snapshots and reconnect.
 6. Hardening: real database integration/concurrency/security tests, deployment/backup docs and full demo.
+7. Browser workflow refinement: mobile queue priority, patient availability navigation and booking outcomes, staff patient identity preview and paginated session/history navigation.
 
 At each checkpoint, verify the segment and update PROGRESS.md with checks, limitations and the next exact starting point. Do not implement later segments in the same sitting unless requested.

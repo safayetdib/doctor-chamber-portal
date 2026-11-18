@@ -64,10 +64,40 @@ test('provision, book, follow live updates and close the session', async ({ page
     await test.step('Patient books and receives live queue updates', async () => {
       const practiceSelect = patient.getByRole('combobox', { name: /^Practice\b/ });
       await practiceSelect.selectOption({ label: practice });
+      await patient.getByLabel('Session date in Dhaka').fill('2099-01-01');
+      await expect(patient.getByText('No sessions are open for booking on this date.', { exact: false })).toBeVisible();
+      await patient.getByRole('button', { name: 'All dates', exact: true }).click();
+      await patient.getByLabel('Session date in Dhaka').fill(tomorrow);
       await patient.getByRole('button', { name: 'Book session' }).click();
       await expect(patientQueue.getByText('Estimated start', { exact: false })).toBeVisible();
       await expect(patientQueue.getByText('Live updates', { exact: true })).toBeVisible();
       await expect(doctor.getByRole('button', { name: 'Move serial 1 up' })).toBeVisible({ timeout: 8_000 });
+    });
+
+    await test.step('Staff check patient identity, add a booking and cancel the correct serial', async () => {
+      await doctor.getByLabel('Patient name').fill('Synthetic Second Patient');
+      await doctor.getByLabel('Contact phone').fill(phone);
+      await doctor.getByRole('button', { name: 'Register patient', exact: true }).click();
+      await expect(doctor.locator('.patient-preview')).toContainText('Synthetic Second Patient');
+      const loginId = await doctor.getByLabel('Patient login ID').inputValue();
+      await doctor.getByLabel('Patient login ID').fill('missing-synthetic-patient');
+      await expect(doctor.getByRole('button', { name: 'Add booking', exact: true })).toBeDisabled();
+      await doctor.getByLabel('Patient login ID').fill(loginId);
+      await doctor.getByRole('button', { name: 'Find patient', exact: true }).click();
+      await expect(doctor.locator('.patient-preview')).toContainText('Synthetic Second Patient');
+      await doctor.getByRole('button', { name: 'Add booking', exact: true }).click();
+      await expect(doctor.getByText('Booking confirmed. Serial 2 has been added to the queue.')).toBeVisible();
+      await expect(doctor.getByRole('button', { name: 'Move serial 2 up' })).toBeVisible();
+      await doctor.getByText('Register a new patient', { exact: true }).click();
+      await doctor.screenshot({ path: testInfo.outputPath('staff-queue.png'), fullPage: true, scale: 'css' });
+      await patient.screenshot({ path: testInfo.outputPath('patient-queue.png'), fullPage: true, scale: 'css' });
+      for (const role of [doctor, patient]) {
+        expect(await role.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+      }
+      doctor.once('dialog', (dialog) => dialog.accept());
+      await doctor.getByRole('button', { name: 'Cancel serial 2', exact: true }).click();
+      await expect(doctor.getByRole('button', { name: 'Move serial 2 up' })).toHaveCount(0);
+      await expect(doctor.getByRole('button', { name: 'Move serial 1 up' })).toBeVisible();
     });
 
     await test.step('Patient sees a staff update during a stream outage and reconnects', async () => {
@@ -86,6 +116,7 @@ test('provision, book, follow live updates and close the session', async ({ page
     await test.step('Doctor completes the consultation and closes the session', async () => {
       await doctor.getByRole('button', { name: 'Finish consultation' }).click();
       await expect(patientQueue.getByText('Completed', { exact: true })).toBeVisible({ timeout: 8_000 });
+      await expect(patientQueue.getByText('Your consultation is complete.')).toBeVisible();
       doctor.once('dialog', (dialog) => dialog.accept());
       await doctor.getByRole('button', { name: 'End session' }).click();
       await expect(doctor.getByText('Ended', { exact: true })).toBeVisible();

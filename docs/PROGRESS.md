@@ -10,6 +10,7 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 | Queue engine | Backend implemented with local replica-set verification |
 | Demonstration UI and live updates | Implemented with local browser and replica-set verification |
 | Hardening and operating documentation | Implemented and locally verified. Compose runtime, remote CI and hosted deployment checks pending |
+| Patient and staff browser workflow refinement | Implemented with desktop and mobile browser verification |
 
 ## Completed in the foundation sitting
 
@@ -165,3 +166,22 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 ### Next starting point
 
 - Configure the stable signing key on any intended preview host and use fresh sign-in after the JWT upgrade. Compose runtime, hosted CI and the actual HTTPS deployment checks listed above remain pending. Real SMS and administrator MFA remain production prerequisites.
+
+## Patient and staff browser workflow refinement
+
+- Added Dhaka service-date filtering and paging for patient availability and the practice directory. Added paging for staff sessions and booking history, with cursor resets when filters change.
+- Staff can use the existing exact-login lookup to preview a patient's name before booking. Changing the ID clears the preview and pending overflow confirmation. New registrations populate the preview directly. Successful staff booking displays the assigned serial, and controls prevent overlapping lookup, registration and booking submissions.
+- Prioritized an active queue above forms on mobile. Moved start/end controls beside queue operations, added queue counts and refresh timestamps, and made cancellation buttons distinguish the intended serial for assistive technology.
+- Added explicit completed, missed, cancelled and unserved messages to the patient's queue and an explicit refresh control. Added retry controls for availability, sessions and staff history, and disabled staff writes when the last queue read failed.
+- Extended the synthetic real-database browser walkthrough to cover date filtering, identity preview, staff booking, serial-specific cancellation and completed outcome text. Added response-fixture browser tests for later practice/session/history pages and filter resets.
+
+### Verification actually performed
+
+- `pnpm check` passed on pinned Node and pnpm with Turbo cache bypassed. Direct TypeScript checks of the browser test files and lint passed.
+- `pnpm test:smoke` passed all desktop and emulated mobile Chromium projects. The workflow tests used a dedicated authenticated Scoop replica-set database. The pagination tests used synthetic API response fixtures. Removed the temporary database and scoped user afterward.
+- Reviewed desktop and mobile screenshots of both workspaces. Browser assertions confirmed no horizontal page overflow. The Impeccable mechanical scan reported no findings.
+- Preserved the original generated `frontend/next-env.d.ts` change byte for byte. Full backend integration tests were not rerun for this frontend-only segment. The real-database browser workflow exercised the existing booking and queue APIs.
+
+### Next starting point
+
+- The scoped browser refinement is complete. Deployment/Compose/hosted CI verification and production SMS/MFA prerequisites remain as recorded above. Choose the next segment before starting another feature area.
