@@ -5,6 +5,7 @@ import { accountSchema, assistantAssignmentSchema, patientIdentitySchema, practi
 import { type Account, type Assignment, type AuthSession, type Challenge, type Credential, type IdentityDocument, type Patient, type Practice } from './documents.js';
 import { forbidden, hashToken, IdentityError, randomSecret, unauthorized } from './security.js';
 import { PracticeStore } from '../persistence/store.js';
+import { SessionTokens } from './session-tokens.js';
 
 type Audit = IdentityDocument<'auditEvents'>;
 export interface Actor {
@@ -25,7 +26,10 @@ const activeAssignment = { $in: ['invited', 'active'] as Array<Assignment['statu
 export const assignedStatuses = { status: activeAssignment };
 
 export class IdentityContext {
-  constructor(readonly store: PracticeStore, private clock: () => Date = () => new Date()) {}
+  constructor(
+    readonly store: PracticeStore, private clock: () => Date = () => new Date(),
+    readonly sessionTokens = new SessionTokens()
+  ) {}
 
   now() {
     return this.clock();
@@ -33,10 +37,12 @@ export class IdentityContext {
 
   async actor(token: string | undefined, transaction: ClientSession, lock = false): Promise<Actor> {
     if (!token) throw unauthorized();
+    const claims = await this.sessionTokens.verify(token, this.now());
     const session = await this.store.one('authSessions', {
       tokenDigest: hashToken(token), expiresAt: { $gt: this.now() }, revokedAt: { $exists: false }
     }, transaction);
-    if (!session) throw unauthorized();
+    if (!session || session._id.toHexString() !== claims.jti || session.accountId.toHexString() !== claims.sub
+      || session.authVersion !== claims.authVersion || Math.floor(session.expiresAt.getTime() / 1000) !== claims.exp) throw unauthorized();
     const principal = await this.principal(session.accountId, transaction);
     if (!principal || principal.credential.authVersion !== session.authVersion) throw unauthorized();
     if (lock) await this.lockCredential(principal.credential, transaction);

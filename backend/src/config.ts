@@ -13,6 +13,7 @@ const environmentSchema = z.object({
     } catch { return false; }
   }).default('http://127.0.0.1:3000'),
   IDENTITY_OTP_SECRET: z.string().min(32).optional(),
+  JWT_SESSION_SECRET: z.string().refine((value) => Buffer.byteLength(value, 'utf8') >= 32).optional(),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info')
 });
 

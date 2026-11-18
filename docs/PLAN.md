@@ -43,7 +43,7 @@ Each patient has a separate account and permanent patient ID, even when sharing 
 - Contact phone and authorized login phone are separate. Changing contact details does not grant access.
 - Activated users manage their own identity; staff may correct pre-activation registration details and manage booking details.
 - Staff searches are practice-scoped. A patient-provided login ID may be used for minimal identity lookup to book an existing patient, never to access another practice's history.
-- Argon2id hashes, opaque hashed server session tokens, HttpOnly secure cookies, CSRF/origin controls, request throttling and session revocation.
+- Argon2id hashes, signed JWT login sessions backed by hashed server session records, HttpOnly secure cookies, CSRF/origin controls, request throttling and immediate session revocation. JWTs carry account and session identifiers and credential version. Backend authorization reads current account and practice state.
 - Recovery uses explicitly authorized phone, otherwise an audited operator-assisted process. Contact number alone is insufficient.
 - Setup links cannot reset activated accounts. Revocation applies immediately to REST and live access.
 - Idempotent superuser CLI seed with explicit secrets, no default credentials or public registration. Additional MFA for production administration.

@@ -165,7 +165,7 @@
                 }
               },
               "Set-Cookie": {
-                "description": "Sets or clears the HttpOnly, SameSite=Strict session cookie. HTTPS uses the Secure __Host- cookie.",
+                "description": "Sets or clears the HttpOnly, SameSite=Strict JWT session cookie. HTTPS uses the Secure __Host- cookie. JWTs remain subject to server-side session revocation.",
                 "schema": {
                   "type": "string"
                 }
@@ -359,7 +359,7 @@
                 }
               },
               "Set-Cookie": {
-                "description": "Sets or clears the HttpOnly, SameSite=Strict session cookie. HTTPS uses the Secure __Host- cookie.",
+                "description": "Sets or clears the HttpOnly, SameSite=Strict JWT session cookie. HTTPS uses the Secure __Host- cookie. JWTs remain subject to server-side session revocation.",
                 "schema": {
                   "type": "string"
                 }
@@ -427,7 +427,7 @@
                 }
               },
               "Set-Cookie": {
-                "description": "Sets or clears the HttpOnly, SameSite=Strict session cookie. HTTPS uses the Secure __Host- cookie.",
+                "description": "Sets or clears the HttpOnly, SameSite=Strict JWT session cookie. HTTPS uses the Secure __Host- cookie. JWTs remain subject to server-side session revocation.",
                 "schema": {
                   "type": "string"
                 }
@@ -571,7 +571,7 @@
                 }
               },
               "Set-Cookie": {
-                "description": "Sets or clears the HttpOnly, SameSite=Strict session cookie. HTTPS uses the Secure __Host- cookie.",
+                "description": "Sets or clears the HttpOnly, SameSite=Strict JWT session cookie. HTTPS uses the Secure __Host- cookie. JWTs remain subject to server-side session revocation.",
                 "schema": {
                   "type": "string"
                 }
@@ -919,7 +919,7 @@
                 }
               },
               "Set-Cookie": {
-                "description": "Sets or clears the HttpOnly, SameSite=Strict session cookie. HTTPS uses the Secure __Host- cookie.",
+                "description": "Sets or clears the HttpOnly, SameSite=Strict JWT session cookie. HTTPS uses the Secure __Host- cookie. JWTs remain subject to server-side session revocation.",
                 "schema": {
                   "type": "string"
                 }

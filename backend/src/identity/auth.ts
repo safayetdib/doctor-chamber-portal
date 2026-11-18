@@ -8,13 +8,14 @@ import { IdentityContext, type Actor, type RequestContext } from './context.js';
 import type { Challenge, Credential } from './documents.js';
 import {
   equalDigest, forbidden, generateCode, hashPassword, hashToken, IdentityError, invalidChallenge,
-  otpDigest, randomSecret, type SmsSender, unauthorized, verifyPassword
+  otpDigest, type SmsSender, unauthorized, verifyPassword
 } from './security.js';
 
 type Otp = z.infer<typeof otpSchema>;
 type Signup = z.infer<typeof patientDetailsSchema>;
 type OtpPurpose = Exclude<Challenge['purpose'], 'setup' | 'operator_recovery'>;
-export const sessionLifetimeMs = 12 * 60 * 60 * 1000;
+import { sessionLifetimeMs } from './session-tokens.js';
+export { sessionLifetimeMs } from './session-tokens.js';
 
 export class AuthService {
   constructor(
@@ -32,8 +33,10 @@ export class AuthService {
   private async newSession(principal: Omit<Actor, 'session'>, transaction: ClientSession) {
     // Production administration needs MFA before a superuser session can be issued.
     if (this.production && principal.account.role === 'superuser') throw forbidden();
-    const token = randomSecret();
     const record = this.identity.recordTime();
+    const token = await this.identity.sessionTokens.issue(
+      principal.account._id.toHexString(), record._id.toHexString(), principal.credential.authVersion, record.createdAt
+    );
     await this.store.insert('authSessions', {
       ...record, accountId: principal.account._id, authVersion: principal.credential.authVersion,
       tokenDigest: hashToken(token), expiresAt: new Date(record.createdAt.getTime() + sessionLifetimeMs)

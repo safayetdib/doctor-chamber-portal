@@ -56,6 +56,10 @@ Set `SMOKE_MONGODB_DB=practice_smoke_demo` and use that database as the URI's `a
 
 Desktop and emulated mobile projects open independent browser contexts for the administrator, doctor and patient and use the built application. They assert the booking and completion outcomes, deliberately interrupt the patient's event stream, and check polling and reconnection before closing the session.
 
+## JWT login sessions
+
+Login sessions use signed JWT cookies. Supply a stable, independently generated `JWT_SESSION_SECRET` of at least 32 bytes to every API instance. Keep it outside source control and task caches. Rotating the secret invalidates all JWT sessions. Upgrading from the previous opaque-token release requires users to sign in again. The database still stores only token hashes and enforces revocation and credential versions, and the backup restore procedure still clears sessions and challenges. An unset development key is process-local and expires all existing login sessions when the API restarts.
+
 ## OpenAPI
 
 The versioned [OpenAPI document](openapi.json) covers the REST and event stream routes. Run `pnpm openapi:generate` after changing a route or public contract. Update the operation catalog in `backend/src/scripts/generate-openapi.ts` when the API's methods, paths, response statuses or access rules change. `pnpm check` checks the catalog against the route declarations and verifies that the saved document matches generation.

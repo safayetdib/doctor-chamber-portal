@@ -13,6 +13,7 @@ import { BookingService } from './scheduling/bookings.js';
 import { SessionService } from './scheduling/sessions.js';
 import { QueueService } from './queue/service.js';
 import { QueueEvents } from './queue/events.js';
+import { SessionTokens } from './identity/session-tokens.js';
 
 async function main() {
   const config = parseEnvironment(process.env);
@@ -24,7 +25,8 @@ async function main() {
   }
   const database = createDatabase(config);
   const store = new PracticeStore(database.client, database.db);
-  const identity = new IdentityContext(store);
+  if (!config.JWT_SESSION_SECRET) logger.warn('JWT_SESSION_SECRET is unset. Sessions will require sign-in again after an API restart.');
+  const identity = new IdentityContext(store, undefined, new SessionTokens(config.JWT_SESSION_SECRET));
   const auth = new AuthService(identity, new DevelopmentSms(), config.IDENTITY_OTP_SECRET ?? randomSecret(), false);
   const queue = new QueueService(identity);
   const queueEvents = new QueueEvents(store, queue);

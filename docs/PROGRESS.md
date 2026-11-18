@@ -148,3 +148,20 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 - Run `pnpm db:up`, `pnpm db:check`, the integration suite and `pnpm test:smoke` on a Docker-enabled host. Verify the first hosted Actions run after a remote is configured.
 - For an intended restricted preview, follow the operations runbook and repeat health, invitation, booking, queue streaming and closure checks from the real HTTPS origin. Local startup and restore were verified. Hosted proxy and provider-managed backup behavior still need verification on the chosen infrastructure.
 - Keep using synthetic records and private invitation links. Real SMS delivery and administrator MFA remain production prerequisites.
+
+## JWT login sessions
+
+- Committed the pending hardening checkpoint as `e2a173b` before starting the requested JWT change.
+- Replaced opaque login cookies with HS256 JWTs signed and verified by the pinned `jose` dependency. JWT verification checks algorithm, type, issuer, audience, required identity claims and expiry. The claims bind to the stored session identifier, account, credential version and expiration. Current database authorization and token hashes continue to enforce immediate logout, recovery and access revocation, including SSE.
+- Added `JWT_SESSION_SECRET` configuration and documented stable signing keys, rotation and fresh sign-in after upgrading from opaque sessions. Generated a stable local key in the gitignored backend environment. Without configuration, development uses a per-process random key. Preserved HttpOnly/SameSite cookies, HTTPS Secure cookies and write-origin checks.
+- Updated the accepted plan and generated OpenAPI cookie descriptions. Existing database documents and indexes remain compatible. Users with previous opaque session cookies must sign in again.
+
+### Verification actually performed
+
+- On the pinned Node and pnpm toolchain, `pnpm check` passed with Turbo cache bypassed, including JWT unit tests, lint, type checks and builds. OpenAPI generation checks and independent specification validation passed.
+- `pnpm db:check` and the authenticated Scoop replica-set integration suite passed. Added HTTP assertions for JWT signature tampering, claim-to-session binding and immediate logout. Existing recovery, tenant isolation, assistant revocation and live queue tests passed using JWTs.
+- Desktop and emulated mobile Chromium smoke projects passed against the built apps with synthetic fixtures. Removed the temporary smoke database and scoped credentials afterward. Preserved the pre-existing generated `frontend/next-env.d.ts` change byte for byte.
+
+### Next starting point
+
+- Configure the stable signing key on any intended preview host and use fresh sign-in after the JWT upgrade. Compose runtime, hosted CI and the actual HTTPS deployment checks listed above remain pending. Real SMS and administrator MFA remain production prerequisites.

@@ -16,6 +16,7 @@ import { createApiRouter } from '../src/identity/routes.js';
 import { BookingService } from '../src/scheduling/bookings.js';
 import { SessionService } from '../src/scheduling/sessions.js';
 import { QueueService } from '../src/queue/service.js';
+import { SessionTokens } from '../src/identity/session-tokens.js';
 
 const origin = 'https://practice.test';
 const password = 'Fictional test password!';
@@ -27,7 +28,8 @@ const prefix = 'identity_test_' + randomBytes(8).toString('hex') + '_';
 const database = createDatabase(parseEnvironment(process.env));
 const store = new PracticeStore(database.client, database.db, prefix);
 let offsetMs = 0;
-const identity = new IdentityContext(store, () => new Date(Date.now() + offsetMs));
+const sessionTokens = new SessionTokens(randomSecret());
+const identity = new IdentityContext(store, () => new Date(Date.now() + offsetMs), sessionTokens);
 const sms = new DevelopmentSms();
 const access = new AccessService(identity);
 const auth = new AuthService(identity, sms, randomSecret(), false);
@@ -95,6 +97,26 @@ afterAll(async () => {
 });
 
 describe('identity on a writable MongoDB replica set', () => {
+  it('requires a verified JWT bound to a live stored session and invalidates logout immediately', async () => {
+    const response = await post('/auth/login', { loginId: 'test-admin', password }).expect(200);
+    const authorization = cookie(response);
+    const token = authorization.split('=')[1]!;
+    const claims = await sessionTokens.verify(token, identity.now());
+    expect(claims.sub).toBe(response.body.accountId);
+    const record = await store.one('authSessions', { tokenDigest: hashToken(token) });
+    expect(record?._id.toHexString()).toBe(claims.jti);
+    const altered = token.split('.');
+    altered[1] = Buffer.from(JSON.stringify({ ...claims, sub: new ObjectId().toHexString() })).toString('base64url');
+    await get('/auth/me', '__Host-practice_session=' + altered.join('.')).expect(401);
+    const mismatched = await sessionTokens.issue(new ObjectId().toHexString(), record!._id.toHexString(), record!.authVersion, identity.now());
+    await store.collection('authSessions').updateOne({ _id: record!._id }, { $set: { tokenDigest: hashToken(mismatched) } });
+    await get('/auth/me', '__Host-practice_session=' + mismatched).expect(401);
+    await store.collection('authSessions').updateOne({ _id: record!._id }, { $set: { tokenDigest: hashToken(token) } });
+    await get('/auth/me', authorization).expect(200);
+    await post('/auth/logout', {}, authorization).expect(204);
+    await get('/auth/me', authorization).expect(401);
+    await get('/auth/me', '__Host-practice_session=' + randomSecret()).expect(401);
+  });
   it('enforces HTTP boundaries, validators and hashed session storage', async () => {
     await api.post(path + '/auth/login').send({ loginId: 'test-admin', password }).expect(403);
     await api.post(path + '/auth/login').set('Origin', 'https://other.test').send({ loginId: 'test-admin', password }).expect(403);

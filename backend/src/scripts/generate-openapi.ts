@@ -37,7 +37,7 @@ function reference(name: Contract, io: 'input' | 'output' = 'output') {
 
 const requestId = { 'X-Request-Id': { description: 'Request correlation ID.', schema: { type: 'string', format: 'uuid' } } };
 const responseCookie = { 'Set-Cookie': {
-  description: 'Sets or clears the HttpOnly, SameSite=Strict session cookie. HTTPS uses the Secure __Host- cookie.',
+  description: 'Sets or clears the HttpOnly, SameSite=Strict JWT session cookie. HTTPS uses the Secure __Host- cookie. JWTs remain subject to server-side session revocation.',
   schema: { type: 'string' }
 } };
 const json = (schema: object) => ({ 'application/json': { schema } });

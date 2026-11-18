@@ -86,6 +86,8 @@ To seed a local administrator, supply `SUPERUSER_LOGIN_ID`, `SUPERUSER_NAME`, an
 
 The identity API is under `/api/v1`. For direct API testing, send the configured `PUBLIC_APP_ORIGIN` as the `Origin` header on writes and reuse the session cookie returned by login or setup. The local HTTP origin defaults to `http://127.0.0.1:3000`, and an HTTPS origin uses a Secure cookie.
 
+Login sessions use HS256-signed JWTs with a fixed issuer and audience and a twelve-hour lifetime. Set `JWT_SESSION_SECRET` to an independently generated random secret of at least 32 bytes and keep it stable across API restarts and instances. An unset development value generates a process-local key, requiring sign-in after restart. Key rotation invalidates existing JWTs. Upgrading from opaque sessions also requires a fresh sign-in. The API checks the stored session and current authorization on every authenticated operation, including live queue refreshes. Tokens stay in the HttpOnly cookie. The login response remains the public account DTO.
+
 | Workflow | Routes |
 | --- | --- |
 | Password login and session | `POST /auth/login`, `GET/PATCH /auth/me`, `POST /auth/logout` |

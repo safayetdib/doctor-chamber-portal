@@ -10,7 +10,7 @@
       "dependsOn": ["^build"],
       "cache": false,
       "persistent": true,
-      "passThroughEnv": ["NODE_ENV", "HOST", "PORT", "MONGODB_URI", "MONGODB_DB", "LOG_LEVEL", "API_INTERNAL_ORIGIN", "PUBLIC_APP_ORIGIN", "IDENTITY_OTP_SECRET"]
+      "passThroughEnv": ["NODE_ENV", "HOST", "PORT", "MONGODB_URI", "MONGODB_DB", "LOG_LEVEL", "API_INTERNAL_ORIGIN", "PUBLIC_APP_ORIGIN", "IDENTITY_OTP_SECRET", "JWT_SESSION_SECRET"]
     },
     "lint": { "dependsOn": ["^build"] },
     "typecheck": { "dependsOn": ["^build"], "outputs": [] },

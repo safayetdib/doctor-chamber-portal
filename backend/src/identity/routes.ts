@@ -28,7 +28,7 @@ export function createApiRouter(
       .find((part) => part.startsWith(cookieName + '='))?.slice(cookieName.length + 1);
     return {
       requestId: String(request.id), ip: request.ip ?? request.socket.remoteAddress ?? 'unknown',
-      token: token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : undefined
+      token: token && token.length <= 2048 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token) ? token : undefined
     };
   }
 
