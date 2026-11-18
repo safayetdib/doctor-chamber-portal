@@ -185,3 +185,10 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 ### Next starting point
 
 - The scoped browser refinement is complete. Deployment/Compose/hosted CI verification and production SMS/MFA prerequisites remain as recorded above. Choose the next segment before starting another feature area.
+
+## Administrator seed diagnostics
+
+- Investigated a failed manual seed command. Read-only checks confirmed that the configured local replica set was reachable, validators and indexes passed migration checks, and the `admin` login ID was available.
+- Updated the seed CLI to identify invalid `SUPERUSER_*` inputs and distinguish connection, migration and creation failures. Messages omit supplied values and underlying driver errors. Existing administrator credentials remain unchanged on a repeat seed.
+- Verified rejection of a short password and missing inputs, with field-specific messages. `pnpm check` passed with applicable Turbo cache hits. No administrator was created during these diagnostic runs. The user's terminal variables are not visible to this chat, so the original failing input remains unconfirmed.
+- Preserved the pre-existing generated frontend change. Next, rerun the seed command in the user's Git Bash terminal with all seed variables exported and a password of the accepted length. Any remaining failure will identify its phase.
