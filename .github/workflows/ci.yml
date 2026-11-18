@@ -31,6 +31,12 @@ jobs:
         env:
           MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true
           MONGODB_DB: practice_ci
+      - name: Install Chromium for browser smoke tests
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Exercise the built application on desktop and mobile
+        run: pnpm test:smoke
+        env:
+          SMOKE_MONGODB_URI: mongodb://127.0.0.1:27017/?replicaSet=rs0&directConnection=true
       - name: Show database logs on failure
         if: failure()
         run: docker compose -f infra/compose.yaml logs

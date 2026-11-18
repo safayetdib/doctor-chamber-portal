@@ -6,16 +6,20 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
-    "lint": "turbo run lint",
+    "lint": "turbo run lint && eslint playwright.config.ts e2e",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm openapi:check",
+    "openapi:generate": "pnpm --filter @practice/contracts build && pnpm --filter @practice/backend openapi:generate",
+    "openapi:check": "pnpm --filter @practice/backend openapi:generate --check",
+    "test:smoke": "playwright test",
     "db:up": "docker compose -f infra/compose.yaml up -d --wait mongo && docker compose -f infra/compose.yaml run --rm mongo-init",
     "db:down": "docker compose -f infra/compose.yaml down",
     "db:check": "pnpm --filter @practice/backend db:check"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.65.1",
     "eslint": "10.14.0",
     "globals": "17.14.0",
     "turbo": "2.11.11",

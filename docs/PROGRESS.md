@@ -9,7 +9,7 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 | Sessions and bookings | Backend implemented with local replica-set verification |
 | Queue engine | Backend implemented with local replica-set verification |
 | Demonstration UI and live updates | Implemented with local browser and replica-set verification |
-| Hardening and operating documentation | Not started |
+| Hardening and operating documentation | Implemented and locally verified. Compose runtime, remote CI and hosted deployment checks pending |
 
 ## Completed in the foundation sitting
 
@@ -127,8 +127,24 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 - The browser demo uses password sign-in and invitation-based activation. SMS flows are available through the API, with test access through the in-memory adapter. Production startup requires real SMS delivery and administrator MFA.
 - Docker Compose and remote CI verification remain pending.
 
-## Start here next sitting
+## Hardening and operating documentation
 
-1. Read PLAN.md and this handoff. Run the pinned workspace checks, replica-set integration suite, and browser walkthrough.
-2. Begin **Hardening and operating documentation** with deployment and backup/restore instructions, a repeatable browser smoke suite, and the generated OpenAPI artifact.
-3. Validate local and deployment startup, recovery and revocation behavior, and the full demo on the intended deployment setup.
+- Added `pnpm test:smoke` for the built Next.js and Express processes on desktop Chromium and an emulated mobile viewport. Each run reserves a fresh synthetic database. Independent administrator, doctor and patient contexts exercise password sign-in and invitation activation, chamber setup, publication, booking, live queue updates, polling during a deliberate stream interruption, reconnection, consultation completion and session closure.
+- Added [generated OpenAPI](openapi.json) for the REST and SSE endpoints using public Zod request and response contracts and an explicit route catalog. `pnpm check` checks route coverage and compares the saved spec with a fresh generation.
+- Added the [operations runbook](OPERATIONS.md) for deploying the restricted synthetic demo, performing a quiesced backup and restoring into an empty database, clearing restored sessions and challenges, and validating a restored service. Wired the browser suites into the GitHub Actions job after the Compose integration tests.
+
+### Verification actually performed
+
+- Used Node `24.19.0` and pnpm `12.20.0`. `pnpm install --frozen-lockfile --offline`, `pnpm check` with Turbo cache bypassed, and a direct TypeScript check of the Playwright files passed. The generated document passed OpenAPI 3.1 validation.
+- `pnpm db:check` and all authenticated replica-set integration tests passed on Scoop MongoDB. Those tests include recovery, tenant isolation, assistant revocation, transaction races and SSE authorization and reconnect.
+- `pnpm test:smoke` passed on desktop and emulated mobile Chromium with the built apps on loopback and an authenticated Scoop smoke database.
+- Stopped the smoke apps before using MongoDB Database Tools to make a compressed archive. Verified the SHA-256 checksum, previewed namespace mapping and restored into a separate synthetic database with zero document failures. Compared restored account, queue, booking and audit records, then cleared restored auth sessions and challenges.
+- The built API started on the restored database using its existing validators and indexes. Fresh administrator sign-in and operator recovery let restored doctor and patient accounts read the ended session and completed booking. Recovery token replay was rejected. Migration and replica-set checks also passed on the restore target. The compiled API exited as expected in production mode with the existing SMS and MFA gate.
+- Removed the temporary smoke and restore databases, scoped users, archive and credential files after the drill. Left the authenticated Scoop replica set available locally.
+- Standalone Compose CLI configuration validation and local `actionlint` passed. The Compose CLI could not connect to a Docker engine. The repository has no configured Git remote for a hosted CI run.
+
+### Limits and next starting point
+
+- Run `pnpm db:up`, `pnpm db:check`, the integration suite and `pnpm test:smoke` on a Docker-enabled host. Verify the first hosted Actions run after a remote is configured.
+- For an intended restricted preview, follow the operations runbook and repeat health, invitation, booking, queue streaming and closure checks from the real HTTPS origin. Local startup and restore were verified. Hosted proxy and provider-managed backup behavior still need verification on the chosen infrastructure.
+- Keep using synthetic records and private invitation links. Real SMS delivery and administrator MFA remain production prerequisites.

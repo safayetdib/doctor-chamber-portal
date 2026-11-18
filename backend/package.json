@@ -10,6 +10,8 @@
     "lint": "eslint src test",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "openapi:generate": "tsx src/scripts/generate-openapi.ts",
+    "smoke:prepare": "tsx test/prepare-smoke.ts && pnpm db:migrate && pnpm seed:superuser",
     "db:check": "tsx --env-file-if-exists=.env src/scripts/check-database.ts",
     "db:migrate": "tsx --env-file-if-exists=.env src/scripts/migrate-database.ts",
     "db:migrate:local": "tsx src/scripts/migrate-local-database.ts",

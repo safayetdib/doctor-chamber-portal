@@ -64,6 +64,8 @@ For simultaneous editing, root `pnpm dev` watches contracts and applications. Af
 | `pnpm --filter @practice/backend db:migrate:local` | Apply migrations to the authenticated Scoop database using a temporary migration account |
 | `pnpm --filter @practice/backend seed:superuser` | Create a development administrator from explicit env inputs |
 | `pnpm --filter @practice/backend test:integration` | Run identity, scheduling, and booking tests in isolated collections on a writable development replica set |
+| `pnpm test:smoke` | Run the browser workflow against the built apps and a dedicated replica-set database |
+| `pnpm openapi:generate` | Regenerate the OpenAPI document from public contracts and the route catalog |
 | `pnpm db:down` | Stop the Compose database, preserving its volume |
 | `pnpm --filter @practice/backend start` | Run previously built API |
 | `pnpm --filter @practice/frontend start` | Run previously built frontend |
@@ -152,4 +154,4 @@ When moving to an Atlas replica set, configure an Atlas database user and networ
 
 `API_INTERNAL_ORIGIN` is consumed by Next.js rewrites at build/start configuration time. Set it consistently in the deployment build environment. No `NEXT_PUBLIC` variable contains private backend configuration.
 
-Use synthetic patient data in local development. Backups, production deployment and full end-to-end verification remain upcoming.
+Use synthetic patient data. See the [operations runbook](docs/OPERATIONS.md) for restricted demo deployment, backup/restore and automated browser verification, and [OpenAPI](docs/openapi.json) for the generated API reference.
