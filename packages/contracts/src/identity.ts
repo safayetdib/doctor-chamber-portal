@@ -32,7 +32,11 @@ export const otpSchema = z.strictObject({ challengeId: idSchema, code: z.string(
 export const signupCompleteSchema = otpSchema.extend({ password: passwordSchema });
 export const otpAccountSchema = z.strictObject({ loginId: loginIdSchema });
 export const phoneGrantSchema = z.strictObject({ phone: phoneSchema, password: passwordSchema });
-export const profileUpdateSchema = patientDetailsSchema;
+export const profileUpdateSchema = patientDetailsSchema.extend({
+  birthDate: patientDetailsSchema.shape.birthDate.unwrap().nullable().optional(),
+  gender: patientDetailsSchema.shape.gender.unwrap().nullable().optional(),
+  address: patientDetailsSchema.shape.address.unwrap().nullable().optional()
+});
 export const createDoctorSchema = z.strictObject({
   name: nameSchema,
   displayName: nameSchema,
@@ -78,6 +82,10 @@ export const practiceSchema = z.strictObject({
   status: practiceStatusSchema
 });
 export const practicePageSchema = z.strictObject({ practices: z.array(practiceSchema), nextCursor: idSchema.nullable() });
+export const adminPracticeSchema = practiceSchema.extend({
+  doctorAccount: z.strictObject({ loginId: loginIdSchema, name: nameSchema, status: accountStatusSchema })
+});
+export const adminPracticePageSchema = z.strictObject({ practices: z.array(adminPracticeSchema), nextCursor: idSchema.nullable() });
 export const doctorCreatedSchema = z.strictObject({ practice: practiceSchema, invitation: setupInvitationSchema });
 export const assistantAssignmentSchema = z.strictObject({
   assignmentId: idSchema,

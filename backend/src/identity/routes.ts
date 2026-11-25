@@ -109,6 +109,9 @@ export function createApiRouter(
     const after = parse(idSchema.optional(), request.query.after);
     response.json(await access.listPractices(context(request), after));
   });
+  router.get('/admin/practice-accounts', async (request, response) => {
+    response.json(await access.listPracticeAccounts(context(request), parse(idSchema.optional(), request.query.after)));
+  });
   router.get('/admin/practices/:doctorId', async (request, response) => {
     response.json(await access.readPractice(context(request), parse(idSchema, request.params.doctorId)));
   });

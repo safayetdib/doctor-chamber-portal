@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { ObjectId } from 'mongodb';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { accountSchema, doctorCreatedSchema, assistantInvitedSchema, patientRegistrationSchema } from '@practice/contracts';
+import { accountSchema, adminPracticePageSchema, doctorCreatedSchema, assistantInvitedSchema, patientRegistrationSchema, practicePageSchema } from '@practice/contracts';
 import { createApp } from '../src/app.js';
 import { parseEnvironment } from '../src/config.js';
 import { createDatabase } from '../src/database.js';
@@ -97,6 +97,22 @@ afterAll(async () => {
 });
 
 describe('identity on a writable MongoDB replica set', () => {
+  it('allows only administrators to read doctor activation status without changing existing practice DTOs', async () => {
+    await get('/admin/practice-accounts').expect(401);
+    const created = doctorCreatedSchema.parse((await post('/admin/practices', doctorInput, rootCookie).expect(201)).body);
+    const pending = adminPracticePageSchema.parse((await get('/admin/practice-accounts', rootCookie).expect(200)).body);
+    expect(pending.practices.find((practice) => practice.doctorId === created.practice.doctorId)?.doctorAccount).toEqual({
+      name: doctorInput.name, loginId: created.invitation.loginId, status: 'pending_setup'
+    });
+    const activated = await post('/auth/setup', { token: created.invitation.setupToken, password }).expect(200);
+    await get('/admin/practice-accounts', cookie(activated)).expect(403);
+    const active = adminPracticePageSchema.parse((await get('/admin/practice-accounts', rootCookie).expect(200)).body);
+    expect(active.practices.find((practice) => practice.doctorId === created.practice.doctorId)?.doctorAccount.status).toBe('active');
+    const original = practicePageSchema.parse((await get('/admin/practices', rootCookie).expect(200)).body);
+    expect(original.practices.find((practice) => practice.doctorId === created.practice.doctorId)).not.toHaveProperty('doctorAccount');
+    const publicDirectory = await get('/practices').expect(200);
+    expect(JSON.stringify(publicDirectory.body)).not.toContain(created.invitation.loginId);
+  });
   it('requires a verified JWT bound to a live stored session and invalidates logout immediately', async () => {
     const response = await post('/auth/login', { loginId: 'test-admin', password }).expect(200);
     const authorization = cookie(response);
@@ -156,10 +172,18 @@ describe('identity on a writable MongoDB replica set', () => {
     await post('/auth/phone-grant/complete', { challengeId: grant.body.challengeId, code: grantCode }, first.cookie).expect(204);
 
     const edit = await api.patch(path + '/auth/me').set({ Origin: origin, Cookie: first.cookie })
-      .send({ name: 'Updated Patient', contactPhone: '+8801912345678', birthDate: '1990-02-28' }).expect(200);
+      .send({ name: 'Updated Patient', contactPhone: '+8801912345678', birthDate: '1990-02-28', gender: 'Synthetic', address: 'Synthetic address' }).expect(200);
     expect(edit.body).toMatchObject({
       contactPhoneVerified: false, phoneLoginEnabled: true, patientDetails: { birthDate: '1990-02-28' }
     });
+    await get('/admin/practice-accounts', first.cookie).expect(403);
+    const omitted = await api.patch(path + '/auth/me').set({ Origin: origin, Cookie: first.cookie })
+      .send({ name: 'Updated Patient', contactPhone: '+8801912345678' }).expect(200);
+    expect(omitted.body.patientDetails).toEqual({ birthDate: '1990-02-28', gender: 'Synthetic', address: 'Synthetic address' });
+    const cleared = await api.patch(path + '/auth/me').set({ Origin: origin, Cookie: first.cookie })
+      .send({ name: 'Updated Patient', contactPhone: '+8801912345678', birthDate: null, gender: null, address: null }).expect(200);
+    expect(cleared.body.patientDetails).toEqual({});
+    expect((await get('/auth/me', first.cookie).expect(200)).body.patientDetails).toEqual({});
     const start = await post('/auth/phone-login/start', { loginId: first.account.loginId }).expect(202);
     const loginCode = sms.take(otherPhone)?.code;
     const signedIn = await post('/auth/phone-login/complete', { challengeId: start.body.challengeId, code: loginCode }).expect(200);

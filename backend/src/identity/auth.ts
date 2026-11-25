@@ -357,8 +357,11 @@ export class AuthService {
         $set: { name, contactPhone, updatedAt }, ...(changedPhone && { $unset: { contactPhoneVerifiedAt: '' } })
       }, { session: transaction });
       if (Object.keys(details).length) {
+        const setDetails = Object.fromEntries(Object.entries(details).filter(([, value]) => value !== null));
+        const unsetDetails = Object.fromEntries(Object.entries(details).filter(([, value]) => value === null).map(([key]) => [key, '' as const]));
         await this.store.collection('patientProfiles').updateOne({ accountId: account._id }, {
-          $set: { ...details, updatedAt }
+          $set: { ...setDetails, updatedAt },
+          ...(Object.keys(unsetDetails).length > 0 && { $unset: unsetDetails })
         }, { session: transaction });
       }
       await this.identity.audit(context, account._id, 'account', account._id, 'profile_updated', transaction, actor.practice?._id);

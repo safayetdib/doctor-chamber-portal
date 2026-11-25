@@ -76,6 +76,16 @@ summary::marker { color: var(--green); }
 .auth-rule { width: 58px; border-top: 2px solid #74a78e; margin-top: 26px; }
 .auth-form { padding: clamp(24px, 5vw, 43px); }
 .auth-form .text-button { margin-top: 14px; }
+.auth-links { display: grid; justify-items: start; gap: 2px; margin-top: 14px; }
+.auth-links.inline { display: flex; gap: 14px; }
+.auth-links .text-button { margin-top: 0; text-align: start; }
+.patient-nav { margin-block: 0 24px; }
+.sms-availability { margin-top: 12px; }
+.account-identifiers { margin-block: 16px; display: grid; gap: 10px; }
+.account-identifiers div { min-width: 0; }
+.account-identifiers dt { color: var(--muted); font-size: .82rem; }
+.account-identifiers dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+.doctor-account { flex-basis: 100%; }
 
 .fields, fieldset { display: grid; gap: 13px; }
 .fields { margin-top: 15px; }

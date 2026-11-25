@@ -16,8 +16,10 @@ async function activate(from: Page, recipient: Page, password: string) {
 test('provision, book, follow live updates and close the session', async ({ page: admin, browser }, testInfo) => {
   const doctorContext = await browser.newContext();
   const patientContext = await browser.newContext();
+  const recoveryContext = await browser.newContext();
   const doctor = await doctorContext.newPage();
   const patient = await patientContext.newPage();
+  const recovered = await recoveryContext.newPage();
   const practice = `Synthetic ${testInfo.project.name} practice`;
   const password = randomBytes(24).toString('hex');
   const tomorrow = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Dhaka' })
@@ -32,8 +34,11 @@ test('provision, book, follow live updates and close the session', async ({ page
       await admin.getByLabel('Public practice name').fill(practice);
       await admin.getByLabel('Contact phone').fill(phone);
       await admin.getByRole('button', { name: 'Create and invite doctor' }).click();
+      await expect(admin.getByText('Pending setup', { exact: true })).toBeVisible();
       await activate(admin, doctor, password);
       await expect(doctor.getByRole('heading', { name: practice })).toBeVisible();
+      await admin.getByRole('button', { name: 'Refresh', exact: true }).click();
+      await expect(admin.locator('article').filter({ hasText: practice }).locator('.doctor-account .badge')).toHaveText('Active');
     });
 
     await test.step('Doctor saves a chamber, publishes a session and invites a patient', async () => {
@@ -125,7 +130,56 @@ test('provision, book, follow live updates and close the session', async ({ page
       await expect(history.getByText('Serial 1', { exact: true })).toBeVisible();
       await expect(history.getByText('Completed', { exact: true })).toBeVisible();
     });
+
+    await test.step('Patient edits their profile and clears an optional field', async () => {
+      await patient.getByRole('button', { name: 'Your account', exact: true }).click();
+      await patient.getByLabel('Full name').fill('Updated Synthetic Patient');
+      await patient.getByLabel('Address').fill('Synthetic profile address');
+      await patient.getByLabel('Date of birth').fill('1990-02-28');
+      await patient.getByRole('button', { name: 'Save profile', exact: true }).click();
+      await expect(patient.getByText('Profile saved.')).toBeVisible();
+      await patient.reload();
+      await patient.getByRole('button', { name: 'Your account', exact: true }).click();
+      await expect(patient.getByLabel('Full name')).toHaveValue('Updated Synthetic Patient');
+      await expect(patient.getByLabel('Address')).toHaveValue('Synthetic profile address');
+      await patient.getByLabel('Address').fill('');
+      await patient.getByRole('button', { name: 'Save profile', exact: true }).click();
+      await expect(patient.getByText('Profile saved.')).toBeVisible();
+      await patient.screenshot({ path: testInfo.outputPath('patient-account.png'), fullPage: true, scale: 'css' });
+    });
+
+    await test.step('Administrator issues a private recovery link and recovery revokes the old patient session', async () => {
+      const loginId = await patient.locator('.account-identifiers dd').first().innerText();
+      await admin.getByRole('button', { name: 'Account recovery', exact: true }).click();
+      await admin.getByLabel('Account login ID').fill(loginId);
+      await admin.getByLabel('Verification case reference').fill('CASE-' + testInfo.project.name.toUpperCase() + '001');
+      await admin.getByLabel('Your administrator password').fill('Wrong synthetic administrator password');
+      await admin.getByRole('checkbox').check();
+      await admin.getByRole('button', { name: 'Issue recovery link', exact: true }).click();
+      await expect(admin.getByText('The password is invalid.', { exact: true })).toBeVisible();
+      await expect(admin.getByLabel('Your administrator password')).toHaveValue('');
+      await admin.getByLabel('Your administrator password').fill(process.env.SMOKE_ADMIN_PASSWORD!);
+      await admin.getByRole('button', { name: 'Issue recovery link', exact: true }).click();
+      const link = admin.getByLabel('Private recovery link');
+      await expect(link).toHaveValue(/\/#recovery=/);
+      const url = await link.inputValue();
+      await admin.getByRole('button', { name: 'Hide recovery link' }).click();
+      await admin.screenshot({ path: testInfo.outputPath('admin-recovery.png'), fullPage: true, scale: 'css' });
+      await recovered.goto(url);
+      const newPassword = randomBytes(24).toString('hex');
+      await recovered.getByLabel('New password').fill(newPassword);
+      await recovered.getByRole('button', { name: 'Reset password', exact: true }).click();
+      await expect(recovered.getByText('Password updated. Sign in with your login ID and new password.')).toBeVisible();
+      await expect(recovered).toHaveURL(/\/$/);
+      await recovered.getByLabel('Login ID').fill(loginId);
+      await recovered.getByLabel('Password', { exact: true }).fill(newPassword);
+      await recovered.getByRole('button', { name: 'Sign in', exact: true }).click();
+      await expect(recovered.getByRole('heading', { name: 'Your consultations' })).toBeVisible();
+      await patient.reload();
+      await expect(patient.getByRole('heading', { name: 'Sign in', exact: true })).toBeVisible();
+    });
   } finally {
+    await recoveryContext.close();
     await patientContext.close();
     await doctorContext.close();
   }

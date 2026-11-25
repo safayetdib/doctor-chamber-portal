@@ -96,6 +96,7 @@ Login sessions use HS256-signed JWTs with a fixed issuer and audience and a twel
 | Recovery with an authorized phone | `POST /auth/recovery/start`, `POST /auth/recovery/complete` |
 | Operator-assisted recovery | `POST /admin/account-recovery`, `POST /auth/recovery/operator/complete` |
 | Practice administration | `GET/POST /admin/practices`, `GET /admin/practices/:doctorId`, `PATCH /admin/practices/:doctorId/status`, `POST /admin/practices/:doctorId/setup` |
+| Doctor account activation overview | `GET /admin/practice-accounts` for administrators, with optional `after` cursor |
 | Assigned practice and assistant management | `GET /practice`, `GET/POST /practice/assistant`, `POST /practice/assistant/:assignmentId/setup`, `DELETE /practice/assistant/:assignmentId` |
 | Staff patient registration | `POST /patients`, `POST /patients/lookup`, `PATCH /patients/:patientId`, `POST /patients/:patientId/setup` |
 
@@ -104,6 +105,12 @@ Send setup invitations privately. The browser displays a setup link after creati
 For an account without an authorized phone, an administrator can issue an operator recovery token after independently confirming the caller's identity. Record the approved case outside the application and send an opaque `caseReference` of the form `CASE-ABC123` with the login ID and the administrator's current password. Deliver the token through the verified private channel. The issuance and completion audit events link to that case reference.
 
 The development SMS adapter stores codes in memory for retrieval through the integration harness. Set `IDENTITY_OTP_SECRET` in the gitignored environment to keep outstanding codes verifiable over a development restart. An unset value uses a per-process secret. Production startup is gated on a real SMS provider and administrator MFA.
+
+The sign-in screen includes patient registration, code sign-in, phone recovery, setup-token activation and operator-recovery completion. SMS-dependent forms display the current delivery limitation. For local activation, continue using private invitations. Recovery links use a `#recovery=` fragment, and setup links use `#setup=`. Completed recovery returns to password sign-in and removes the token from the address bar.
+
+Patients can open **Your account** to view their permanent identifiers, edit their profile and manage the independently authorized sign-in phone. Clearing an optional profile field sends `null` to `PATCH /auth/me`; omitted fields keep their existing values. Phone sign-in still requires the account's login ID.
+
+Administrators can view a doctor's login ID and activation state in **Practices**, alongside practice access. **Account recovery** requires the target login ID, a recorded verification case and administrator password reauthentication. The generated private recovery link appears once in the current view and can be copied or hidden. Reissuing invalidates earlier links, and successful password recovery revokes existing sessions.
 
 ## Sessions and bookings
 

@@ -1,7 +1,7 @@
 import { ObjectId, type ClientSession } from 'mongodb';
 import type { z } from 'zod';
 import {
-  assistantInvitedSchema, doctorCreatedSchema, patientRegistrationSchema, practicePageSchema,
+  adminPracticePageSchema, adminPracticeSchema, assistantInvitedSchema, doctorCreatedSchema, patientRegistrationSchema, practicePageSchema,
   type assistantInviteSchema, type createDoctorSchema, type patientDetailsSchema, type practiceStatusSchema
 } from '@practice/contracts';
 import { assignedStatuses, assignmentDto, IdentityContext, patientDto, practiceDto, type RequestContext } from './context.js';
@@ -102,6 +102,29 @@ export class AccessService {
       return practicePageSchema.parse({
         practices,
         nextCursor: results.length > pageSize ? practices[pageSize - 1]?.doctorId : null
+      });
+    });
+  }
+
+  async listPracticeAccounts(context: RequestContext, after?: string) {
+    return this.store.transaction(async (transaction) => {
+      await this.admin(context, transaction, false);
+      const pageSize = 50;
+      const records = await this.store.collection('doctorProfiles').find(
+        after ? { _id: { $gt: new ObjectId(after) } } : {}, { session: transaction }
+      ).sort({ _id: 1 }).limit(pageSize + 1).toArray();
+      const practices = [];
+      for (const record of records.slice(0, pageSize)) {
+        const practice = identityDocuments.doctorProfiles.parse(record);
+        const account = await this.store.one('accounts', { _id: practice.accountId, role: 'doctor' }, transaction);
+        if (!account) throw new Error('Practice doctor account is missing.');
+        practices.push(adminPracticeSchema.parse({
+          ...practiceDto(practice),
+          doctorAccount: { loginId: account.loginId, name: account.name, status: account.status }
+        }));
+      }
+      return adminPracticePageSchema.parse({
+        practices, nextCursor: records.length > pageSize ? practices[pageSize - 1]?.doctorId : null
       });
     });
   }

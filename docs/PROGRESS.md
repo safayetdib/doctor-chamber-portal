@@ -11,6 +11,7 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 | Demonstration UI and live updates | Implemented with local browser and replica-set verification |
 | Hardening and operating documentation | Local verification and hosted CI passed, including Docker Compose. Hosted deployment checks pending |
 | Patient and staff browser workflow refinement | Implemented with desktop and mobile browser verification |
+| Patient accounts and administrator screens | Implemented with replica-set and desktop/mobile verification. SMS browser steps use response fixtures |
 
 ## Completed in the foundation sitting
 
@@ -206,3 +207,25 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 
 - Verify a restricted synthetic preview through its intended HTTPS origin, including cookie scope, invitation activation, booking, SSE/polling and session closure. The hosting target and preview origin have not been selected in this repository.
 - Real SMS delivery and administrator MFA remain production prerequisites. Further application features need a selected scope.
+
+## Patient accounts and administrator screens
+
+- Confirmed that the preceding checkpoint, `9f800fa`, was already committed under the user's configured Git author, Yakiyo. Started this segment from that clean checkpoint.
+- Added browser forms for patient signup and OTP verification, code sign-in, phone-based password recovery, invitation setup and operator-recovery completion. The forms use the existing authentication endpoints, preserve account-specific login IDs, support OTP retry/resend and clear recovery fragments after completion.
+- Added **Your account** for patients with permanent login/patient identifiers, contact verification status, profile editing and separately authorized phone-login management. Optional demographic fields can be cleared explicitly with `null`; omitted fields retain their previous values. Persisted records continue to use absent optional fields.
+- Added **Account recovery** for administrators using exact target login ID, the existing verification case reference and password reauthentication. It displays a private, expiring recovery link and supports copying or hiding it. Successful recovery revokes old sessions.
+- Added doctor login and activation status to the administrator practice directory through a dedicated administrator-only `GET /admin/practice-accounts` DTO. Existing practice endpoints keep their previous response shapes, and public/staff DTOs receive no doctor account metadata.
+- Updated shared request/response contracts, generated OpenAPI and browser operating notes. Preserved the existing visual system and the original generated frontend type declarations.
+
+### Verification actually performed
+
+- On Node `24.19.0` and pnpm `12.20.0`, `pnpm check` passed with Turbo caching bypassed initially. The final verification passed with applicable cache hits. Direct browser-test lint/type checks and independent OpenAPI specification validation also passed.
+- `pnpm db:check` and the authenticated Scoop replica-set integration suite passed. New assertions cover doctor activation visibility, administrator-only access, unchanged existing/public DTOs, optional profile-field preservation and explicit clearing.
+- All desktop and emulated mobile Chromium browser tests passed. The synthetic real-database workflow verifies activation status changes, saved/cleared profile details, administrator password rejection, private operator recovery, fresh sign-in and revocation of the original patient session.
+- SMS browser tests use synthetic response fixtures for signup, invalid-code retry, resend, phone authorization/removal, code sign-in and phone recovery. Real OTP, shared-phone isolation and recovery rules remain covered by the replica-set suite. Reviewed desktop and mobile screenshots of the account and recovery screens.
+- Removed temporary synthetic browser-test databases, scoped users and local verification helpers after completion. No production deployment or real SMS delivery was attempted.
+
+### Limits and next starting point
+
+- SMS delivery is still disconnected, and the browser forms state this. Use private invitations and administrator-issued recovery links for local activation/recovery. Connect and verify a real provider before relying on OTP forms in a deployment.
+- Administrator MFA and restricted HTTPS deployment verification remain pending. This segment preserves the existing backend authorization and production startup gates.

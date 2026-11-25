@@ -1363,6 +1363,71 @@
         }
       }
     },
+    "/admin/practice-accounts": {
+      "get": {
+        "summary": "List doctor account activation and practice access",
+        "description": "Access: administrator. Server-side ownership, state, and validation rules also apply.",
+        "security": [
+          {
+            "httpsSession": []
+          },
+          {
+            "localSession": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{24}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request correlation ID.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/adminPracticePage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "API error. Consult error.code for the application error, including booking confirmation and stale queue errors.",
+            "headers": {
+              "X-Request-Id": {
+                "description": "Request correlation ID.",
+                "schema": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/apiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/practices/{doctorId}": {
       "get": {
         "summary": "Read a practice for administration",
@@ -4068,19 +4133,40 @@
             "type": "string"
           },
           "birthDate": {
-            "type": "string",
-            "format": "date",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "gender": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 40
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "address": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 400
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 400
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4399,6 +4485,86 @@
                 "doctorId",
                 "displayName",
                 "status"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{24}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "practices",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "adminPracticePage": {
+        "type": "object",
+        "properties": {
+          "practices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "doctorId": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{24}$"
+                },
+                "displayName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 120
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "active",
+                    "disabled"
+                  ]
+                },
+                "doctorAccount": {
+                  "type": "object",
+                  "properties": {
+                    "loginId": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_-]{2,47}$"
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending_setup",
+                        "active",
+                        "disabled"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "loginId",
+                    "name",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "doctorId",
+                "displayName",
+                "status",
+                "doctorAccount"
               ],
               "additionalProperties": false
             }

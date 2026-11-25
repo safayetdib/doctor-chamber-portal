@@ -116,6 +116,7 @@ route('post', '/auth/recovery/operator/complete', 'Reset a password with an oper
 
 route('post', '/admin/practices', 'Provision a practice and invite its doctor', 'doctorCreatedSchema', { ...administrator, body: 'createDoctorSchema', status: 201 });
 route('get', '/admin/practices', 'List practices for administration', 'practicePageSchema', { ...administrator, query: afterQuery });
+route('get', '/admin/practice-accounts', 'List doctor account activation and practice access', 'adminPracticePageSchema', { ...administrator, query: afterQuery });
 route('get', '/admin/practices/{doctorId}', 'Read a practice for administration', 'practiceSchema', administrator);
 route('patch', '/admin/practices/{doctorId}/status', 'Change practice access', 'practiceSchema', { ...administrator, body: 'practiceStatusRequestSchema' });
 route('post', '/admin/practices/{doctorId}/setup', 'Reissue a doctor setup invitation', 'setupInvitationSchema', { ...administrator, status: 201 });
