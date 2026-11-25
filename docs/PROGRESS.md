@@ -9,7 +9,7 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 | Sessions and bookings | Backend implemented with local replica-set verification |
 | Queue engine | Backend implemented with local replica-set verification |
 | Demonstration UI and live updates | Implemented with local browser and replica-set verification |
-| Hardening and operating documentation | Implemented and locally verified. Compose runtime, remote CI and hosted deployment checks pending |
+| Hardening and operating documentation | Local verification and hosted CI passed, including Docker Compose. Hosted deployment checks pending |
 | Patient and staff browser workflow refinement | Implemented with desktop and mobile browser verification |
 
 ## Completed in the foundation sitting
@@ -192,3 +192,17 @@ The accepted specification is [PLAN.md](PLAN.md). This file is the handoff betwe
 - Updated the seed CLI to identify invalid `SUPERUSER_*` inputs and distinguish connection, migration and creation failures. Messages omit supplied values and underlying driver errors. Existing administrator credentials remain unchanged on a repeat seed.
 - Verified rejection of a short password and missing inputs, with field-specific messages. `pnpm check` passed with applicable Turbo cache hits. No administrator was created during these diagnostic runs. The user's terminal variables are not visible to this chat, so the original failing input remains unconfirmed.
 - Preserved the pre-existing generated frontend change. Next, rerun the seed command in the user's Git Bash terminal with all seed variables exported and a password of the accepted length. Any remaining failure will identify its phase.
+
+## Hosted CI and Docker Compose verification
+
+- Reviewed the repository and hosted Actions results on 2026-11-25. The checkout was clean on `main` at `356952b`, with `origin` configured for `safayetdib/doctor-chamber-portal`. The latest commit contains the previously generated frontend type-reference update.
+- Verified the completed [Checks run for that commit](https://github.com/safayetdib/doctor-chamber-portal/actions/runs/44269640453), which passed on 2026-11-18. Inspected both the job step conclusions and test summaries in its logs.
+- The Ubuntu runner installed the frozen lockfile and passed `pnpm check`. Docker Compose started a healthy MongoDB container, initialized its replica set and passed `pnpm db:check`.
+- The real replica-set integration suite passed all identity and scheduling tests, and the Chromium suite passed all desktop and emulated mobile workflow and navigation tests. Compose shutdown also succeeded.
+- This closes the pending hosted CI and Compose runtime verification. Docker remains unavailable in the current Windows terminal. The Compose runtime result above comes from the hosted Ubuntu runner.
+- Updated the checkpoint summary and operations runbook. This sitting changed documentation only. No application checks or deployments were started locally, and no workflow rerun was needed to inspect the completed result.
+
+### Next starting point
+
+- Verify a restricted synthetic preview through its intended HTTPS origin, including cookie scope, invitation activation, booking, SSE/polling and session closure. The hosting target and preview origin have not been selected in this repository.
+- Real SMS delivery and administrator MFA remain production prerequisites. Further application features need a selected scope.

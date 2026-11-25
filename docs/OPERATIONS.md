@@ -1,5 +1,11 @@
 # Operating the chamber queue prototype
 
+## Verification checkpoint
+
+The [hosted Checks run for commit `356952b`](https://github.com/safayetdib/doctor-chamber-portal/actions/runs/44269640453) passed on 2026-11-18 and was reviewed on 2026-11-25. It verified the frozen dependency installation, workspace checks, Docker Compose replica-set startup and readiness, database integration tests, desktop/mobile browser tests and database shutdown on Ubuntu.
+
+The synthetic browser tests used the built apps over loopback. Verification through an intended hosted HTTPS origin and its proxy still needs to be performed on the selected preview infrastructure.
+
 ## Deploy a restricted synthetic demo
 
 Use the pinned Node and pnpm versions, a private authenticated MongoDB replica set with a writable primary, and separate API and frontend processes. The local Compose configuration is for disposable development and CI. Keep the demo behind an access-controlled preview or on loopback and use synthetic accounts and patient records. The API currently exits in production mode. Real SMS delivery and administrator MFA are required before a public or clinical deployment.
